@@ -1,0 +1,7 @@
+/knowledge_base/storage/*
+/knowledge_base/storage/
+/.venv/
+/web/node_modules
+/.idea/
+/web/
+/data/
