@@ -30,17 +30,16 @@ class LLMClient:
             base_url: API地址，默认从环境变量LLM_BASE_URL读取
             model: 模型名称，默认从环境变量LLM_MODEL读取
         """
-        self.api_key = api_key or os.getenv("LLM_API_KEY", "")
-        self.base_url = base_url or os.getenv("LLM_BASE_URL", "")
-        self.model = model or os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B")
-        
+        self.api_key = api_key or os.getenv("KB_LLM_API_KEY", "")
+        self.base_url = base_url or os.getenv("KB_LLM_BASE_URL", "")
+        # self.base_url = "http://localhost:8000/v1"
+        self.model = model or os.getenv("KB_LLM_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B")
+
         self.client = None
-        if HAS_OPENAI and self.api_key and self.base_url:
-            self.client = OpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-            )
-    
+        if HAS_OPENAI and self.base_url:
+            self.ai = OpenAI(api_key=self.api_key or "dummy", base_url=self.base_url)
+            self.client = self.ai
+
     def is_available(self) -> bool:
         """检查LLM是否可用"""
         return self.client is not None

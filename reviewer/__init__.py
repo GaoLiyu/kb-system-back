@@ -11,6 +11,8 @@ from .llm_reviewer import (
     LLMReviewResult,
     LLMIssue,
     llm_review,
+    llm_review_paragraphs,
+    llm_review_full_document,
 )
 from .report_exporter import (
     create_review_report,
@@ -25,6 +27,8 @@ __all__ = [
     'LLMReviewResult',
     'LLMIssue',
     'llm_review',
+    'llm_review_paragraphs',
+    'llm_review_full_document',
     'create_review_report',
     'create_review_report_with_original',
 ]

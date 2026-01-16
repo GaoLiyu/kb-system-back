@@ -30,6 +30,7 @@ from .routes import (
     audit_router,
     users_router
 )
+from .audit import AuditMiddleware
 
 
 # ============================================================================
@@ -74,6 +75,20 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# 审计日志中间件
+app.add_middleware(
+    AuditMiddleware,
+    exclude_paths=[
+        "/api/health",
+        "/api/config",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/favicon.ico",
+    ],
+    exclude_methods=["OPTIONS", "HEAD"],
 )
 
 

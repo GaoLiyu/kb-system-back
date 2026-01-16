@@ -149,60 +149,111 @@ class ShezhiExtractor:
     PHYSICAL_FACTORS = ['地形地势', '地质土壤', '开发程度', '建筑面积', '空间布局', '新旧程度', '装饰装修', '建筑结构', '物业类型', '设施设备']
     RIGHTS_FACTORS = ['规划条件', '土地使用期限', '担保物权设立', '租赁占用状况', '拖欠税费状况', '其他权益状况']
     
-    def __init__(self):
+    def __init__(self, auto_detect: bool = False):
         self.doc = None
         self.tables = []
         self.full_text = ""
-    
+        self.auto_detect = auto_detect  # 是否自动检测表格索引
+
     def extract(self, doc_path: str) -> ShezhiExtractionResult:
         """提取涉执报告"""
         self.doc = Document(doc_path)
         self.tables = self.doc.tables
         self.full_text = "\n".join([p.text for p in self.doc.paragraphs])
-        
+
         result = ShezhiExtractionResult(source_file=os.path.basename(doc_path))
-        
+
         print(f"\n📊 提取涉执报告: {os.path.basename(doc_path)}")
         print(f"   表格数量: {len(self.tables)}")
-        
+
+        # 自动检测表格索引（用于司法评估等变体）
+        if self.auto_detect:
+            self._auto_detect_table_indices()
+            print(f"   ✓ 自动检测表格索引: 基础信息表={self.TABLE_BASIC_INFO}")
+
         # 1. 提取结果汇总
         self._extract_result_summary(result)
         print(f"   ✓ 结果汇总: {result.subject.address.value}")
-        
+
         # 2. 提取权属信息
         self._extract_property_rights(result)
         print(f"   ✓ 权属信息: {result.subject.cert_no}")
-        
+
         # 3. 提取基础信息
         self._extract_basic_info(result)
         print(f"   ✓ 基础信息: {len(result.cases)}个可比实例")
-        
+
         # 4. 提取因素描述
         self._extract_factor_descriptions(result)
-        
+
         # 5. 提取因素等级
         self._extract_factor_levels(result)
-        
+
         # 6. 提取因素指数
         self._extract_factor_indices(result)
         print(f"   ✓ 因素数据: 描述/等级/指数")
-        
+
         # 7. 提取修正系数
         self._extract_corrections(result)
         print(f"   ✓ 修正系数")
-        
+
         # 8. 提取楼层修正系数
         self._extract_floor_factor(result)
         if result.floor_factor != 1.0:
             print(f"   ✓ 楼层修正: {result.floor_factor}")
-        
+
         # 9. 提取扩展信息（建成年代、价值时点、估价目的等）
         self._extract_extended_info(result)
-        
+
         # 10. 解析区域信息
         self._parse_district(result)
-        
+
         return result
+
+    def _auto_detect_table_indices(self):
+        """
+        自动检测关键表格的索引位置
+        用于处理司法评估等表格结构有偏移的报告
+        """
+        for i, table in enumerate(self.tables):
+            if len(table.rows) == 0:
+                continue
+
+            # 获取表头
+            header = ' '.join([c.text.strip() for c in table.rows[0].cells[:6]])
+
+            # 检测基础信息表（包含"项目"、"估价对象"、"可比实例"）
+            if '项目' in header and '估价对象' in header and '可比实例' in header:
+                self.TABLE_BASIC_INFO = i
+                self.TABLE_FACTOR_DESC = i + 1
+                self.TABLE_FACTOR_LEVEL = i + 2
+                self.TABLE_FACTOR_INDEX = i + 3
+                self.TABLE_FACTOR_RATIO = i + 4
+                self.TABLE_CORRECTION = i + 5
+                break
+
+            # 检测因素描述表（"估价对象及可比"）
+            if '估价对象及可比' in header and '实' in header:
+                # 检查下一行是否有"交易情况"
+                if len(table.rows) > 1:
+                    row1 = ' '.join([c.text.strip() for c in table.rows[1].cells[:3]])
+                    if '交易情况' in row1:
+                        self.TABLE_FACTOR_DESC = i
+                        self.TABLE_BASIC_INFO = i - 1
+                        self.TABLE_FACTOR_LEVEL = i + 1
+                        self.TABLE_FACTOR_INDEX = i + 2
+                        self.TABLE_FACTOR_RATIO = i + 3
+                        self.TABLE_CORRECTION = i + 4
+                        break
+
+        # 检测权属表
+        for i, table in enumerate(self.tables):
+            if len(table.rows) < 2:
+                continue
+            header = ' '.join([c.text.strip() for c in table.rows[0].cells[:5]])
+            if '不动产权属' in header or '权属登记' in header:
+                self.TABLE_PROPERTY_RIGHTS = i
+                break
     
     def _get_cell_value(self, table_idx: int, row_idx: int, col_idx: int) -> LocatedValue:
         """获取单元格值（带位置）"""
@@ -808,41 +859,5 @@ class ShezhiExtractor:
 if __name__ == "__main__":
     extractor = ShezhiExtractor()
     result = extractor.extract("./data/docs/涉执报告-比较法.docx")
-    
-    print(f"\n{'='*70}")
-    print("【提取结果】")
-    print('='*70)
-    
-    print(f"\n估价对象:")
-    print(f"  地址: {result.subject.address.value}")
-    print(f"  面积: {result.subject.building_area.value}㎡")
-    print(f"  单价: {result.subject.unit_price.value}元/㎡")
-    print(f"  总价: {result.subject.total_price.value}万元")
-    print(f"  结构: {result.subject.structure}")
-    print(f"  楼层: {result.subject.floor}")
-    
-    print(f"\n可比实例:")
-    for case in result.cases:
-        print(f"\n  实例{case.case_id}:")
-        print(f"    地址: {case.address.value}")
-        print(f"    成交价: {case.transaction_price.value}元/㎡")
-        print(f"    面积: {case.building_area.value}㎡")
-        print(f"    交易日期: {case.transaction_date}")
-        
-        print(f"    修正系数:")
-        print(f"      交易情况: {case.transaction_correction.value}")
-        print(f"      市场状况: {case.market_correction.value}")
-        print(f"      区位状况: {case.location_correction.value}")
-        print(f"      实物状况: {case.physical_correction.value}")
-        print(f"      权益状况: {case.rights_correction.value}")
-        print(f"    修正后单价: {case.adjusted_price.value}元/㎡")
-        
-        # 显示部分因素
-        if case.location_factors.get('traffic'):
-            print(f"    交通条件: {case.location_factors['traffic'].description}")
-        if case.physical_factors.get('layout'):
-            print(f"    空间布局: {case.physical_factors['layout'].description}")
-        if case.physical_factors.get('equipment'):
-            print(f"    设施设备: {case.physical_factors['equipment'].description}")
-    
-    print(f"\n楼层修正系数: {result.floor_factor}")
+
+    print(result)

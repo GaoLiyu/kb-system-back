@@ -19,7 +19,7 @@ class APISettings(BaseSettings):
     enable_vector: bool = True
     enable_llm: bool = True
     use_database: bool = True
-    embedding_model_path: str = "/data/models/bge-large-zh-v1.5"
+    embedding_model_path: str = "/opt/models/bge-large-zh-v1.5"
     
     # 上传配置
     upload_dir: str = "./uploads"

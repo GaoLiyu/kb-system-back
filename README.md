@@ -117,7 +117,7 @@ LLM_BASE_URL=https://api.siliconflow.cn/v1
 LLM_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
 
 # 嵌入模型
-KB_EMBEDDING_MODEL_PATH=/data/models/bge-large-zh-v1.5
+KB_EMBEDDING_MODEL_PATH=/opt/models/bge-large-zh-v1.5
 ```
 
 ## 数据库表结构

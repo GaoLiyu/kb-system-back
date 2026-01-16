@@ -57,7 +57,11 @@ async def get_report_stats(user: UserContext = Depends(get_current_user)):
     for r in reports:
         create_time = r.get("create_time", "")
         if create_time:
-            month = create_time[:7]  # YYYY-MM
+            # 处理 datetime 对象或字符串
+            if hasattr(create_time, 'strftime'):
+                month = create_time.strftime("%Y-%m")
+            else:
+                month = str(create_time)[:7]  # YYYY-MM
             if month in by_month:
                 by_month[month] += 1
 
@@ -161,10 +165,10 @@ async def get_review_stats(user: UserContext = Depends(get_current_user)):
 
         # 最近7天趋势
         cursor.execute("""
-            SELECT DATE(created_at) as date, COUNT(*) 
+            SELECT DATE(create_time) as date, COUNT(*) 
             FROM review_tasks 
-            WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-            GROUP BY DATE(created_at)
+            WHERE create_time >= CURRENT_DATE - INTERVAL '7 days'
+            GROUP BY DATE(create_time)
             ORDER BY date
         """)
         recent_trend = {str(row[0]): row[1] for row in cursor.fetchall()}
@@ -208,7 +212,7 @@ async def get_dashboard_data(user: UserContext = Depends(get_current_user)):
         cursor.execute("""
             SELECT 
                 (SELECT COUNT(*) FROM reports WHERE DATE(create_time) = CURRENT_DATE) as new_reports,
-                (SELECT COUNT(*) FROM review_tasks WHERE DATE(created_at) = CURRENT_DATE) as new_tasks
+                (SELECT COUNT(*) FROM review_tasks WHERE DATE(create_time) = CURRENT_DATE) as new_tasks
         """)
         row = cursor.fetchone()
         today_stats = {

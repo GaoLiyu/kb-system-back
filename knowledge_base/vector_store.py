@@ -14,7 +14,7 @@ from dataclasses import dataclass
 @dataclass
 class VectorStoreConfig:
     """向量存储配置"""
-    model_path: str = "/data/models/bge-large-zh-v1.5"
+    model_path: str = "/opt/models/bge-large-zh-v1.5"
     index_type: str = "FlatIP"  # 内积，配合归一化等价于余弦相似度
     dimension: int = 1024       # BGE-large维度
     batch_size: int = 32        # 编码批次大小

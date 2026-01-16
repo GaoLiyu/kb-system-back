@@ -246,7 +246,7 @@ ROLE_DEFINITIONS = {
             "review:submit", "review:view", "review:delete", "review:export",
             "generate:suggest",
             "stats:view",
-            "system:audit",
+            "system:audit", "system:user",
         ],
     },
     "reviewer": {
@@ -352,6 +352,12 @@ MENU_CONFIG = [
         "icon": "Setting",
         "permission": "system:audit",
         "children": [
+            {
+                "path": "/system/users",
+                "name": "UserManage",
+                "title": "用户管理",
+                "permission": "system:user",
+            },
             {
                 "path": "/system/audit",
                 "name": "AuditLogs",

@@ -15,7 +15,7 @@ from .db_connection import connect_milvus, get_milvus_collection, MILVUS_CONFIG
 @dataclass
 class MilvusVectorStoreConfig:
     """向量存储配置"""
-    model_path: str = os.getenv("EMBEDDING_MODEL_PATH", "/data/models/bge-large-zh-v1.5")
+    model_path: str = os.getenv("EMBEDDING_MODEL_PATH", "/opt/models/bge-large-zh-v1.5")
     dimension: int = 1024       # BGE-large维度
     batch_size: int = 32        # 编码批次大小
 

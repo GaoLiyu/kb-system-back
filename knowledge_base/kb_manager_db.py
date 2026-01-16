@@ -17,8 +17,10 @@ from .db_connection import pg_cursor, test_pg_connection
 
 
 def result_to_dict(result) -> Dict:
-    """将提取结果转为字典"""
+    """将提取结果转为字典（修复版）"""
+
     def loc_val_to_dict(lv):
+        """转换带位置的值"""
         if lv is None:
             return {'value': None, 'position': {}, 'raw_text': ''}
         return {
@@ -32,6 +34,7 @@ def result_to_dict(result) -> Dict:
         }
 
     def factor_to_dict(f):
+        """转换因素数据"""
         return {
             'name': f.name,
             'description': f.description,
@@ -40,30 +43,49 @@ def result_to_dict(result) -> Dict:
         }
 
     def case_to_dict(case):
+        """转换可比实例（修复版）"""
         data = {
             'case_id': case.case_id,
             'address': loc_val_to_dict(case.address),
         }
 
-        # 通用字段
-        for field in ['building_area', 'transaction_price', 'rental_price',
-                      'transaction_correction', 'market_correction', 'location_correction',
-                      'physical_correction', 'rights_correction', 'adjusted_price',
-                      'structure_factor', 'floor_factor', 'orientation_factor',
-                      'age_factor', 'physical_composite', 'composite_result',
-                      'vs_result', 'decoration_price', 'final_price']:
+        # LocatedValue类型字段 - 【修复】添加 attachment_price
+        located_value_fields = [
+            'building_area', 'transaction_price', 'rental_price',
+            'transaction_correction', 'market_correction', 'location_correction',
+            'physical_correction', 'rights_correction', 'adjusted_price',
+            'structure_factor', 'floor_factor', 'orientation_factor',
+            'age_factor', 'physical_composite', 'composite_result',
+            'vs_result', 'decoration_price', 'attachment_price',  # 【修复】新增
+            'final_price'
+        ]
+        for field in located_value_fields:
             if hasattr(case, field):
                 val = getattr(case, field)
                 if hasattr(val, 'value'):
                     data[field] = loc_val_to_dict(val)
 
-        # 字符串字段
-        for field in ['transaction_date', 'data_source', 'location', 'usage',
-                      'p1_transaction', 'p2_date', 'p3_physical', 'p4_location']:
+        # 字符串字段 - 【修复】添加缺失的字段
+        string_fields = [
+            'transaction_date', 'data_source', 'location', 'usage',
+            'p1_transaction', 'p2_date', 'p3_physical', 'p4_location',
+            'district', 'street', 'structure', 'orientation', 'decoration'  # 【修复】新增
+        ]
+        for field in string_fields:
             if hasattr(case, field):
-                data[field] = getattr(case, field)
+                val = getattr(case, field)
+                if val:  # 只存非空值
+                    data[field] = val
 
-        # 因素
+        # 【修复】数字字段 - 新增
+        int_fields = ['build_year', 'total_floor', 'current_floor']
+        for field in int_fields:
+            if hasattr(case, field):
+                val = getattr(case, field)
+                if val:  # 只存非零值
+                    data[field] = val
+
+        # 因素数据
         for factor_type in ['location_factors', 'physical_factors', 'rights_factors']:
             if hasattr(case, factor_type):
                 factors = getattr(case, factor_type)
@@ -72,9 +94,38 @@ def result_to_dict(result) -> Dict:
 
         return data
 
-    # 主体
+    def batch_subject_to_dict(subj):
+        """批量评估的估价对象转换"""
+        return {
+            'seq_no': subj.seq_no,
+            'address': subj.address,
+            'building_area': subj.building_area,
+            'total_price': subj.total_price,
+            'unit_price': subj.unit_price,
+            'floor_factor': subj.floor_factor,
+            'current_floor': getattr(subj, 'current_floor', 0),
+            'total_floor': getattr(subj, 'total_floor', 0),
+        }
+
+    # 检查是否是批量评估报告（XianzhibExtractionResult）
+    if hasattr(result, 'subjects') and isinstance(result.subjects, list):
+        # 批量评估报告
+        data = {
+            'source_file': result.source_file,
+            'is_batch': True,
+            'total_count': result.total_count,
+            'total_area': result.total_area,
+            'total_value': result.total_value,
+            'base_price': getattr(result, 'base_price', 0),
+            'subjects': [batch_subject_to_dict(s) for s in result.subjects],
+            'case_groups': [[case_to_dict(c) for c in group] for group in result.case_groups],
+        }
+        return data
+
+    # 普通报告（ShezhiExtractionResult / ZujinExtractionResult / BiaozhunfangExtractionResult）
     data = {
         'source_file': result.source_file,
+        'is_batch': False,
         'subject': {
             'address': loc_val_to_dict(result.subject.address),
             'building_area': loc_val_to_dict(result.subject.building_area),
@@ -82,23 +133,56 @@ def result_to_dict(result) -> Dict:
         'cases': [case_to_dict(c) for c in result.cases],
     }
 
-    # 估价对象额外字段
+    # ========== 估价对象字段 ==========
     subject = result.subject
+
+    # LocatedValue类型
     for field in ['unit_price', 'total_price']:
         if hasattr(subject, field):
-            data['subject'][field] = loc_val_to_dict(getattr(subject, field))
+            val = getattr(subject, field)
+            if hasattr(val, 'value') and val.value is not None:
+                data['subject'][field] = loc_val_to_dict(val)
 
+    # 原有字符串字段
     for field in ['structure', 'floor', 'usage', 'cert_no', 'owner', 'location_code']:
         if hasattr(subject, field):
-            data['subject'][field] = getattr(subject, field)
+            val = getattr(subject, field)
+            if val:
+                data['subject'][field] = val
 
-    # 最终结果
+    # 【修复】新增字符串字段（涉执和租金报告）
+    for field in ['district', 'street', 'orientation', 'decoration',
+                  'land_end_date', 'value_date', 'appraisal_purpose', 'land_type']:
+        if hasattr(subject, field):
+            val = getattr(subject, field)
+            if val:
+                data['subject'][field] = val
+
+    # 【修复】新增数字字段（涉执和租金报告）
+    for field in ['build_year', 'total_floor', 'current_floor']:
+        if hasattr(subject, field):
+            val = getattr(subject, field)
+            if val:  # 非零值
+                data['subject'][field] = val
+
+    # 【修复】新增因素数据（涉执和租金报告的Subject）
+    for factor_type in ['location_factors', 'physical_factors', 'rights_factors']:
+        if hasattr(subject, factor_type):
+            factors = getattr(subject, factor_type)
+            if factors:
+                data['subject'][factor_type] = {k: factor_to_dict(v) for k, v in factors.items()}
+
+    # ========== 最终结果 ==========
     if hasattr(result, 'final_unit_price'):
         data['final_unit_price'] = loc_val_to_dict(result.final_unit_price)
     if hasattr(result, 'final_total_price'):
         data['final_total_price'] = loc_val_to_dict(result.final_total_price)
     if hasattr(result, 'floor_factor'):
         data['floor_factor'] = result.floor_factor
+
+    # 【修复】租金报告的价格单位
+    if hasattr(result, 'price_unit'):
+        data['price_unit'] = result.price_unit
 
     return data
 
@@ -163,7 +247,7 @@ class KnowledgeBaseManager:
 
     def add_report(self, result, report_type: str) -> str:
         """
-        添加报告到知识库
+        添加报告到知识库（支持普通报告和批量评估报告）
 
         Args:
             result: 提取结果
@@ -174,72 +258,186 @@ class KnowledgeBaseManager:
         """
         doc_id = generate_id("doc")
         data = result_to_dict(result)
-        subject = result.subject
 
-        # 插入文档
-        with pg_cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO documents (doc_id, filename, file_path, file_type, report_type, 
-                                       address, area, case_count, metadata)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                doc_id,
-                result.source_file,
-                None,
-                'word',
-                report_type,
-                subject.address.value or '',
-                subject.building_area.value or 0,
-                len(result.cases),
-                json.dumps(data, ensure_ascii=False),
-            ))
+        # 检查是否是批量评估报告
+        is_batch = hasattr(result, 'subjects') and isinstance(result.subjects, list)
 
-        # 插入案例
-        for case in result.cases:
-            case_id = f"{doc_id}_case_{case.case_id}"
-            case_data = result_to_dict(result)['cases'][result.cases.index(case)]
-            case_data['case_id_full'] = case_id
-            case_data['from_doc'] = doc_id
-            case_data['report_type'] = report_type
+        if is_batch:
+            # ==================== 批量评估报告 ====================
+            first_subject = result.subjects[0] if result.subjects else None
+            address = first_subject.address if first_subject else ''
+            area = result.total_area
+            case_count = sum(len(group) for group in result.case_groups)
 
-            # 获取价格
-            price = 0
-            if hasattr(case, 'transaction_price') and case.transaction_price.value:
-                price = case.transaction_price.value
-            elif hasattr(case, 'rental_price') and case.rental_price.value:
-                price = case.rental_price.value
-            elif hasattr(case, 'final_price') and case.final_price.value:
-                price = case.final_price.value
-
-            # 获取面积
-            area = case.building_area.value if case.building_area.value else 0
-
+            # 插入文档
             with pg_cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO cases (case_id, case_id_full, doc_id, report_type, address,
-                                       district, street, area, price, usage, build_year,
-                                       total_floor, current_floor, orientation, decoration,
-                                       structure, case_data)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO documents (doc_id, filename, file_path, file_type, report_type, 
+                                           address, area, case_count, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    case_id,
-                    case_id,
                     doc_id,
+                    result.source_file,
+                    None,
+                    'word',
                     report_type,
-                    case.address.value or '',
-                    getattr(case, 'district', ''),
-                    getattr(case, 'street', ''),
+                    f"{address} 等{result.total_count}套",  # 批量评估显示总数
                     area,
-                    price,
-                    getattr(case, 'usage', ''),
-                    getattr(case, 'build_year', 0),
-                    getattr(case, 'total_floor', 0),
-                    getattr(case, 'current_floor', 0),
-                    getattr(case, 'orientation', ''),
-                    getattr(case, 'decoration', ''),
-                    getattr(case, 'structure', ''),
-                    json.dumps(case_data, ensure_ascii=False),
+                    case_count,
+                    json.dumps(data, ensure_ascii=False),
                 ))
+
+            # 插入批量估价对象为案例（便于检索）
+            for subj in result.subjects:
+                case_id = f"{doc_id}_subj_{subj.seq_no}"
+                case_data = {
+                    'case_id': str(subj.seq_no),
+                    'address': {'value': subj.address, 'position': {}, 'raw_text': subj.address},
+                    'building_area': {'value': subj.building_area, 'position': {}, 'raw_text': str(subj.building_area)},
+                    'total_price': subj.total_price,
+                    'unit_price': subj.unit_price,
+                    'floor_factor': subj.floor_factor,
+                    'is_subject': True,  # 标记为估价对象
+                }
+
+                with pg_cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO cases (case_id, case_id_full, doc_id, report_type, address,
+                                           district, street, area, price, usage, build_year,
+                                           total_floor, current_floor, orientation, decoration,
+                                           structure, case_data)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        case_id,
+                        case_id,
+                        doc_id,
+                        report_type,
+                        subj.address,
+                        '',  # district
+                        '',  # street
+                        subj.building_area,
+                        subj.unit_price,  # 使用单价
+                        '',  # usage
+                        0,   # build_year
+                        subj.total_floor,
+                        subj.current_floor,
+                        '',  # orientation
+                        '',  # decoration
+                        '',  # structure
+                        json.dumps(case_data, ensure_ascii=False),
+                    ))
+
+            # 插入可比实例组中的案例
+            for group_idx, case_group in enumerate(result.case_groups):
+                for case in case_group:
+                    case_id = f"{doc_id}_g{group_idx}_case_{case.case_id}"
+                    case_dict = data['case_groups'][group_idx][case_group.index(case)]
+                    case_dict['case_id_full'] = case_id
+                    case_dict['from_doc'] = doc_id
+                    case_dict['report_type'] = report_type
+                    case_dict['group_index'] = group_idx
+
+                    price = 0
+                    if hasattr(case, 'transaction_price') and case.transaction_price.value:
+                        price = case.transaction_price.value
+
+                    area = case.building_area.value if case.building_area.value else 0
+
+                    with pg_cursor() as cursor:
+                        cursor.execute("""
+                            INSERT INTO cases (case_id, case_id_full, doc_id, report_type, address,
+                                               district, street, area, price, usage, build_year,
+                                               total_floor, current_floor, orientation, decoration,
+                                               structure, case_data)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            case_id,
+                            case_id,
+                            doc_id,
+                            report_type,
+                            case.address.value or '',
+                            getattr(case, 'district', ''),
+                            getattr(case, 'street', ''),
+                            area,
+                            price,
+                            getattr(case, 'usage', ''),
+                            getattr(case, 'build_year', 0),
+                            getattr(case, 'total_floor', 0),
+                            getattr(case, 'current_floor', 0),
+                            getattr(case, 'orientation', ''),
+                            getattr(case, 'decoration', ''),
+                            getattr(case, 'structure', ''),
+                            json.dumps(case_dict, ensure_ascii=False),
+                        ))
+
+        else:
+            # ==================== 普通报告 ====================
+            subject = result.subject
+
+            # 插入文档
+            with pg_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO documents (doc_id, filename, file_path, file_type, report_type, 
+                                           address, area, case_count, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    doc_id,
+                    result.source_file,
+                    None,
+                    'word',
+                    report_type,
+                    subject.address.value or '',
+                    subject.building_area.value or 0,
+                    len(result.cases),
+                    json.dumps(data, ensure_ascii=False),
+                ))
+
+            # 插入案例
+            for case in result.cases:
+                case_id = f"{doc_id}_case_{case.case_id}"
+                case_data = data['cases'][result.cases.index(case)]
+                case_data['case_id_full'] = case_id
+                case_data['from_doc'] = doc_id
+                case_data['report_type'] = report_type
+
+                # 获取价格
+                price = 0
+                if hasattr(case, 'transaction_price') and case.transaction_price.value:
+                    price = case.transaction_price.value
+                elif hasattr(case, 'rental_price') and case.rental_price.value:
+                    price = case.rental_price.value
+                elif hasattr(case, 'final_price') and case.final_price.value:
+                    price = case.final_price.value
+
+                # 获取面积
+                area = case.building_area.value if case.building_area.value else 0
+
+                with pg_cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO cases (case_id, case_id_full, doc_id, report_type, address,
+                                           district, street, area, price, usage, build_year,
+                                           total_floor, current_floor, orientation, decoration,
+                                           structure, case_data)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        case_id,
+                        case_id,
+                        doc_id,
+                        report_type,
+                        case.address.value or '',
+                        getattr(case, 'district', ''),
+                        getattr(case, 'street', ''),
+                        area,
+                        price,
+                        getattr(case, 'usage', ''),
+                        getattr(case, 'build_year', 0),
+                        getattr(case, 'total_floor', 0),
+                        getattr(case, 'current_floor', 0),
+                        getattr(case, 'orientation', ''),
+                        getattr(case, 'decoration', ''),
+                        getattr(case, 'structure', ''),
+                        json.dumps(case_data, ensure_ascii=False),
+                    ))
 
         # 添加到向量索引
         if self.enable_vector and self._vector_store is not None:

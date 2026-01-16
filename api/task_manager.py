@@ -282,14 +282,15 @@ def run_review_task(task_id: str, system, settings):
             # 规则校验
             validation_result = system.validate(file_path, verbose=False)
 
-            # LLM 段落审查
+            # LLM 全文审查（使用上下文感知的全文审查，避免误报）
             report_type = detect_report_type(file_path)
             llm_issues = []
 
             if settings.enable_llm and paragraphs:
                 reviewer = LLMReviewer()
                 if reviewer.is_available():
-                    llm_result = reviewer.review_paragraphs(paragraphs, report_type)
+                    # 使用全文审查而非分段审查
+                    llm_result = reviewer.review_full_document(paragraphs, report_type)
                     llm_issues = [
                         {
                             "type": issue.type,

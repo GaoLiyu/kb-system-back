@@ -17,6 +17,7 @@ from reviewer.prompts import (
     build_comparison_review_prompt,
     build_factor_review_prompt,
     build_paragraph_review_prompt,
+    build_full_document_review_prompt,
 )
 
 
@@ -288,6 +289,141 @@ class LLMReviewer:
 
         return result
 
+    def review_full_document(self, paragraphs: list, report_type: str = "shezhi") -> LLMReviewResult:
+        """
+        全文审查（一次性发送整个文档，保持上下文连贯性）
+
+        相比 review_paragraphs，此方法：
+        1. 将整个文档作为一个整体发送给LLM
+        2. LLM可以理解段落之间的上下文关系
+        3. 避免将"标题+解释"这种正常结构误报为问题
+
+        Args:
+            paragraphs: 段落列表 [{'index': 0, 'text': '...'}, ...]
+            report_type: 报告类型
+
+        Returns:
+            LLMReviewResult，issues中包含paragraph_index字段
+        """
+        if not self.is_available():
+            return LLMReviewResult(error_message="LLM未配置")
+
+        result = LLMReviewResult()
+
+        if not paragraphs:
+            return result
+
+        # 计算总token数（粗略估计：中文约1.5字/token）
+        total_chars = sum(len(p.get('text', '')) for p in paragraphs)
+        estimated_tokens = int(total_chars / 1.5)
+
+        # 如果超过20K tokens，需要分段处理（保留buffer给输出）
+        max_input_tokens = 20000
+
+        if estimated_tokens <= max_input_tokens:
+            # 全文一次性审查
+            result = self._review_document_batch(paragraphs, report_type)
+        else:
+            # 文档太长，智能分段
+            result = self._review_document_chunked(paragraphs, report_type, max_input_tokens)
+
+        return result
+
+    def _review_document_batch(self, paragraphs: list, report_type: str) -> LLMReviewResult:
+        """
+        审查一批段落（内部方法）
+        """
+        result = LLMReviewResult()
+
+        try:
+            prompt = build_full_document_review_prompt(paragraphs, report_type)
+            response = self.llm.call_json(prompt)
+            result.raw_responses.append(response)
+
+            # 解析错误
+            for error in response.get('errors', []):
+                issue = LLMIssue(
+                    type=error.get('type', 'UNKNOWN'),
+                    severity=error.get('severity', 'minor'),
+                    description=error.get('comment', ''),
+                    span=error.get('span', ''),
+                    suggestion=error.get('suggestion', ''),
+                )
+                # 段落索引
+                issue.paragraph_index = error.get('paragraph_index')
+                result.issues.append(issue)
+
+        except Exception as e:
+            result.error_message = f"全文审查失败: {e}"
+
+        return result
+
+    def _review_document_chunked(self, paragraphs: list, report_type: str, max_tokens: int) -> LLMReviewResult:
+        """
+        分块审查长文档（保持上下文窗口重叠）
+        """
+        result = LLMReviewResult()
+
+        # 按结构分块（尝试在标题处分割）
+        chunks = self._split_by_structure(paragraphs, max_tokens)
+
+        for chunk_idx, chunk in enumerate(chunks):
+            try:
+                chunk_result = self._review_document_batch(chunk, report_type)
+                result.issues.extend(chunk_result.issues)
+                result.raw_responses.extend(chunk_result.raw_responses)
+
+                if chunk_result.error_message:
+                    result.error_message += f"[分块{chunk_idx + 1}] {chunk_result.error_message}\n"
+
+            except Exception as e:
+                result.error_message += f"[分块{chunk_idx + 1}] 审查失败: {e}\n"
+
+        return result
+
+    def _split_by_structure(self, paragraphs: list, max_tokens: int) -> list:
+        """
+        按文档结构智能分块
+
+        尝试在标题段落处分割，避免打断"标题+内容"的结构
+        """
+        import re
+
+        chunks = []
+        current_chunk = []
+        current_tokens = 0
+
+        # 标题模式
+        title_pattern = re.compile(
+            r'^[\d一二三四五六七八九十]+[、\.．]|'  # 1、 2. 一、
+            r'^[（(][一二三四五六七八九十\d]+[)）]|'  # (一) （1）
+            r'^第[一二三四五六七八九十\d]+[章节条款]|'  # 第一章
+            r'^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[、\.]'  # Ⅰ、
+        )
+
+        for p in paragraphs:
+            text = p.get('text', '')
+            p_tokens = int(len(text) / 1.5)
+
+            # 检查是否是标题
+            is_title = bool(title_pattern.match(text.strip()))
+
+            # 如果当前块已满且遇到标题，开始新块
+            if current_tokens + p_tokens > max_tokens and current_chunk:
+                if is_title or current_tokens > max_tokens * 0.8:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_tokens = 0
+
+            current_chunk.append(p)
+            current_tokens += p_tokens
+
+        # 添加最后一块
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        return chunks
+
 
 # ============================================================================
 # 便捷函数
@@ -312,3 +448,23 @@ def llm_review_paragraphs(paragraphs: list, report_type: str = "shezhi") -> LLMR
     """
     reviewer = LLMReviewer()
     return reviewer.review_paragraphs(paragraphs, report_type)
+
+
+def llm_review_full_document(paragraphs: list, report_type: str = "shezhi") -> LLMReviewResult:
+    """
+    LLM全文审查便捷函数（推荐使用）
+
+    相比 llm_review_paragraphs，此函数：
+    1. 将整个文档作为一个整体发送给LLM
+    2. LLM可以理解段落之间的上下文关系
+    3. 避免将"标题+解释"这种正常结构误报为问题
+
+    Args:
+        paragraphs: 段落列表 [{'index': 0, 'text': '...'}, ...]
+        report_type: 报告类型
+
+    Returns:
+        LLMReviewResult
+    """
+    reviewer = LLMReviewer()
+    return reviewer.review_full_document(paragraphs, report_type)

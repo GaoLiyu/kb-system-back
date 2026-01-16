@@ -229,7 +229,7 @@ def filter_meaningful_paragraphs(paragraphs: List[str], max_count: int = 100) ->
     return meaningful
 
 
-def get_filtered_paragraphs_for_review(doc_content, max_count: int = 100) -> List[str]:
+def get_filtered_paragraphs_for_review(doc_content, max_count: int = 100) -> List[dict]:
     """
     获取过滤后的段落列表（用于 LLM 审查）
 
@@ -238,10 +238,15 @@ def get_filtered_paragraphs_for_review(doc_content, max_count: int = 100) -> Lis
         max_count: 最多返回的段落数
 
     Returns:
-        格式化的段落列表 ["[index] text", ...]
+        格式化的段落列表 [{'index': 0, 'text': '...'}, ...]
     """
-    paragraphs = get_paragraphs_text(doc_content)
-    filtered = filter_meaningful_paragraphs(paragraphs, max_count)
+    # get_paragraphs_text 返回 [{'index': 0, 'text': '...'}, ...]
+    paragraphs_dict = get_paragraphs_text(doc_content)
 
-    # 转回原格式
-    return [f"[{p['index']}] {p['text']}" for p in filtered]
+    # 转换为 filter_meaningful_paragraphs 期望的格式 ["[0] 文本", ...]
+    paragraphs_str = [f"[{p['index']}] {p['text']}" for p in paragraphs_dict]
+
+    # filter_meaningful_paragraphs 返回 [{'index': 0, 'text': '...'}, ...]
+    filtered = filter_meaningful_paragraphs(paragraphs_str, max_count)
+
+    return filtered

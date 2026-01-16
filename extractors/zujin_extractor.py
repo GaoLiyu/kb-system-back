@@ -178,47 +178,84 @@ class ZujinExtractor:
         return result
     
     def _extract_result_summary(self, result: ZujinExtractionResult):
-        """提取结果汇总表"""
+        """提取结果汇总表（支持有/无楼层列）"""
         table = self.tables[self.TABLE_RESULT_SUMMARY]
-        
+
         if len(table.rows) >= 2:
+            # 检查表头是否有楼层列
+            header = [c.text.strip() for c in table.rows[0].cells]
+            has_floor_col = any('楼层' in h for h in header)
+
             row = table.rows[1]
             cells = [c.text.strip() for c in row.cells]
-            
-            if len(cells) >= 1:
+
+            # 根据是否有楼层列调整索引
+            # 有楼层列: 坐落=0, 楼层=1, 面积=2, 单价=3, 总价=4
+            # 无楼层列: 坐落=0, 面积=1, 单价=2, 总价=3
+            if has_floor_col:
+                col_address = 0
+                col_floor = 1
+                col_area = 2
+                col_unit_price = 3
+                col_total_price = 4
+            else:
+                col_address = 0
+                col_floor = -1  # 不存在
+                col_area = 1
+                col_unit_price = 2
+                col_total_price = 3
+
+            # 提取地址
+            if len(cells) > col_address:
                 result.subject.address = LocatedValue(
-                    value=cells[0],
-                    position=Position(self.TABLE_RESULT_SUMMARY, 1, 0),
-                    raw_text=cells[0]
+                    value=cells[col_address],
+                    position=Position(self.TABLE_RESULT_SUMMARY, 1, col_address),
+                    raw_text=cells[col_address]
                 )
-            
-            if len(cells) >= 2:
+
+            # 提取楼层（如果存在）
+            if has_floor_col and len(cells) > col_floor:
+                floor_text = cells[col_floor]
+                # 解析楼层 "1/2" 格式
+                if '/' in floor_text:
+                    parts = floor_text.split('/')
+                    if len(parts) == 2:
+                        try:
+                            result.subject.current_floor = int(parts[0])
+                            result.subject.total_floor = int(parts[1])
+                        except:
+                            pass
+
+            # 提取面积
+            if len(cells) > col_area:
                 try:
                     result.subject.building_area = LocatedValue(
-                        value=float(cells[1]),
-                        position=Position(self.TABLE_RESULT_SUMMARY, 1, 1),
-                        raw_text=cells[1]
+                        value=float(cells[col_area]),
+                        position=Position(self.TABLE_RESULT_SUMMARY, 1, col_area),
+                        raw_text=cells[col_area]
                     )
                 except:
                     pass
-            
-            if len(cells) >= 3:
+
+            # 提取单价
+            if len(cells) > col_unit_price:
                 try:
                     result.subject.unit_price = LocatedValue(
-                        value=float(cells[2]),
-                        position=Position(self.TABLE_RESULT_SUMMARY, 1, 2),
-                        raw_text=cells[2]
+                        value=float(cells[col_unit_price]),
+                        position=Position(self.TABLE_RESULT_SUMMARY, 1, col_unit_price),
+                        raw_text=cells[col_unit_price]
                     )
                     result.final_unit_price = result.subject.unit_price
                 except:
                     pass
-            
-            if len(cells) >= 4:
+
+            # 提取总价
+            if len(cells) > col_total_price:
                 try:
                     result.subject.total_price = LocatedValue(
-                        value=float(cells[3]),
-                        position=Position(self.TABLE_RESULT_SUMMARY, 1, 3),
-                        raw_text=cells[3]
+                        value=float(cells[col_total_price]),
+                        position=Position(self.TABLE_RESULT_SUMMARY, 1, col_total_price),
+                        raw_text=cells[col_total_price]
                     )
                     result.final_total_price = result.subject.total_price
                 except:

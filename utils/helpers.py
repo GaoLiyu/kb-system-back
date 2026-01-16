@@ -56,15 +56,38 @@ def convert_doc_to_docx(doc_path: str) -> str:
 
 
 def detect_report_type(filename: str) -> str:
-    """根据文件名检测报告类型"""
+    """
+    根据文件名检测报告类型
+
+    支持的类型：
+    - biaozhunfang: 税务标准房
+    - zujin: 租金评估
+    - shezhi: 涉执报告
+    - sifa: 司法评估（使用shezhi提取器+偏移）
+    - xianzhi: 市场价值-现状价值（批量评估）
+    """
     filename = filename.lower()
-    
-    if '涉执' in filename or 'shezhi' in filename:
-        return 'shezhi'
+
+    # 税务标准房
+    if '标准房' in filename or 'biaozhunfang' in filename or '电梯多层' in filename or '税务' in filename:
+        return 'biaozhunfang'
+
+    # 租金评估
     elif '租金' in filename or 'zujin' in filename:
         return 'zujin'
-    elif '标准房' in filename or 'biaozhunfang' in filename:
-        return 'biaozhunfang'
+
+    # 市场价值-现状价值（批量评估）
+    elif '现值' in filename or '现状价值' in filename or '市场价值' in filename or 'xianzhi' in filename:
+        return 'xianzhi'
+
+    # 司法评估（人民法院）
+    elif '司法' in filename or '人民法院' in filename or 'sifa' in filename:
+        return 'sifa'
+
+    # 涉执报告
+    elif '涉执' in filename or 'shezhi' in filename:
+        return 'shezhi'
+
     else:
         return 'shezhi'  # 默认
 

@@ -90,38 +90,96 @@ class BiaozhunfangExtractionResult:
 class BiaozhunfangExtractor:
     """标准房报告提取器"""
     
-    # 表格索引
+    # 表格索引（默认值，会被自动检测覆盖）
     TABLE_MAIN_INFO = 6        # 主要信息表（34行）
     TABLE_DETAIL = 19          # 详细因素表（30行）
     TABLE_CORRECTION = 20      # 修正计算表（11行）
-    
-    def __init__(self):
+
+    def __init__(self, auto_detect: bool = True):
         self.doc = None
         self.tables = []
-    
+        self.auto_detect = auto_detect
+
     def extract(self, doc_path: str) -> BiaozhunfangExtractionResult:
         """提取标准房报告"""
         self.doc = Document(doc_path)
         self.tables = self.doc.tables
-        
+
         result = BiaozhunfangExtractionResult(source_file=os.path.basename(doc_path))
-        
+
         print(f"\n📊 提取标准房报告: {os.path.basename(doc_path)}")
         print(f"   表格数量: {len(self.tables)}")
-        
+
+        # 自动检测表格索引
+        if self.auto_detect:
+            self._auto_detect_table_indices()
+            print(f"   ✓ 自动检测: 主表={self.TABLE_MAIN_INFO}, 详细={self.TABLE_DETAIL}, 修正={self.TABLE_CORRECTION}")
+
         # 初始化4个可比实例
-        result.cases = [Case(case_id='A'), Case(case_id='B'), 
+        result.cases = [Case(case_id='A'), Case(case_id='B'),
                         Case(case_id='C'), Case(case_id='D')]
-        
-        # 1. 从表格19提取基本信息和修正系数
+
+        # 1. 从详细因素表提取基本信息和修正系数
         self._extract_detail_table(result)
         print(f"   ✓ 详细信息表: 地址、面积、修正系数")
-        
-        # 2. 从表格20提取修正计算
+
+        # 2. 从修正计算表提取修正计算
         self._extract_correction_table(result)
         print(f"   ✓ 修正计算表: 比准价格")
-        
+
         return result
+
+    def _auto_detect_table_indices(self):
+        """自动检测关键表格的索引位置"""
+        for i, table in enumerate(self.tables):
+            if len(table.rows) == 0:
+                continue
+
+            # 获取表头
+            header = ' '.join([c.text.strip() for c in table.rows[0].cells[:7]])
+
+            # 检测主要信息表（包含"估价对象"和"可比实例"，且有4个可比实例A/B/C/D）
+            if '估价对象' in header and '可比实例' in header:
+                # 检查是否有4个可比实例（A/B/C/D）
+                if '可比实例B' in header or 'B' in header:
+                    # 进一步检查第一行内容
+                    if len(table.rows) > 1:
+                        row1 = ' '.join([c.text.strip() for c in table.rows[1].cells[:7]])
+                        # 主表的第一行通常是案例来源或其他信息
+                        if '来源' in row1 or '时间' in row1 or '交易' in row1:
+                            self.TABLE_MAIN_INFO = i
+                            continue
+
+            # 检测详细因素表（"内容"、"标准房"、"可比实例"）
+            if '内容' in header and '标准房' in header and '可比实例' in header:
+                self.TABLE_DETAIL = i
+                # 修正计算表通常紧跟在详细因素表之后
+                continue
+
+            # 检测修正计算表（包含"交易情况修正"或"P1"、"P2"等）
+            if len(table.rows) > 2:
+                # 检查表格内容
+                table_text = ' '.join([c.text.strip() for row in table.rows[:5] for c in row.cells[:5]])
+                if ('交易情况' in table_text and '修正' in table_text) or \
+                   ('P1' in table_text and 'P2' in table_text):
+                    self.TABLE_CORRECTION = i
+
+        # 如果没有找到详细因素表，尝试用主信息表的索引推算
+        if self.TABLE_DETAIL == 19 and len(self.tables) < 20:
+            # 如果表格数量不足，尝试查找包含"内容"列的表格
+            for i, table in enumerate(self.tables):
+                if len(table.rows) > 0:
+                    header = ' '.join([c.text.strip() for c in table.rows[0].cells[:7]])
+                    if '内容' in header:
+                        self.TABLE_DETAIL = i
+                        # 修正计算表通常是详细表后的下一个或几个表格
+                        for j in range(i+1, min(i+5, len(self.tables))):
+                            if len(self.tables[j].rows) > 0:
+                                check_text = ' '.join([c.text.strip() for row in self.tables[j].rows[:3] for c in row.cells[:4]])
+                                if 'P1' in check_text or '交易情况' in check_text:
+                                    self.TABLE_CORRECTION = j
+                                    break
+                        break
     
     def _extract_detail_table(self, result: BiaozhunfangExtractionResult):
         """提取详细因素表（表格19）"""
