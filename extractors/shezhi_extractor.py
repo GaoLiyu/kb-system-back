@@ -429,42 +429,48 @@ class ShezhiExtractor:
                         case.transaction_date = cells[col]
     
     def _extract_factor_descriptions(self, result: ShezhiExtractionResult):
-        """提取因素描述表"""
+        """提取因素描述表（按固定列读取，避免去重导致列错位）
+
+        表6固定为6列（基于该模板分析）：
+        0=分类, 1=因素名称, 2=估价对象, 3/4/5=可比实例A/B/C
+        """
         table = self.tables[self.TABLE_FACTOR_DESC]
-        
-        # 列映射
-        COL_SUBJECT = 1  # 估价对象列（去重后）
-        COL_A = 2
-        COL_B = 3
-        COL_C = 4
-        
+
+        COL_CATEGORY = 0
+        COL_FACTOR = 1
+        COL_SUBJECT = 2
+        COL_A = 3
+        COL_B = 4
+        COL_C = 5
+
+        category_alias = {
+            '区位状况': '区位状况',
+            '实物状况': '实物状况',
+            '实物因素': '实物状况',
+            '权益状况': '权益状况',
+            '权益因素': '权益状况',
+        }
+
         current_category = ""
-        
         for row_idx, row in enumerate(table.rows[1:], 1):  # 跳过表头
-            # 获取去重后的单元格
-            cells_raw = [c.text.strip().replace('\n', ' ') for c in row.cells]
-            cells = []
-            for c in cells_raw:
-                if c not in cells:
-                    cells.append(c)
-            
-            if len(cells) < 2:
+            cells = [c.text.strip().replace('\n', ' ') for c in row.cells]
+            if len(cells) < 6:
                 continue
-            
-            first = cells[0]
-            
-            # 判断类别
-            if first in ['区位状况', '实物状况', '权益状况']:
-                current_category = first
-                factor_name = cells[1] if len(cells) > 1 else ""
-            elif first in ['交易情况', '交易日期']:
-                continue  # 跳过交易相关行
-            else:
-                factor_name = first
-            
+
+            raw_category = (cells[COL_CATEGORY] or '').replace(' ', '').replace('\u3000', '').replace('　', '')
+            factor_name = (cells[COL_FACTOR] or '').replace(' ', '').replace('\u3000', '').replace('　', '')
+
+            # 跳过交易类
+            if raw_category in ('交易情况', '交易日期') or factor_name in ('交易情况', '交易日期'):
+                continue
+
+            # 分类更新
+            if raw_category in category_alias:
+                current_category = category_alias[raw_category]
+
             if not factor_name:
                 continue
-            
+
             # 确定因素类别
             if factor_name in self.LOCATION_FACTORS or current_category == '区位状况':
                 factor_type = 'location'
@@ -474,76 +480,81 @@ class ShezhiExtractor:
                 factor_type = 'rights'
             else:
                 continue
-            
-            # 标准化因素名
+
             factor_key = self._normalize_factor_name(factor_name)
-            
-            # 提取估价对象的值
-            if len(cells) > COL_SUBJECT:
-                subject_value = cells[COL_SUBJECT]
-                factor = Factor(name=factor_key, description=subject_value)
-                factor.desc_pos = Position(self.TABLE_FACTOR_DESC, row_idx, COL_SUBJECT)
-                
+
+            # 估价对象
+            subject_value = cells[COL_SUBJECT]
+            if subject_value != '':
                 if factor_type == 'location':
-                    result.subject.location_factors[factor_key] = factor
+                    d = result.subject.location_factors
                 elif factor_type == 'physical':
-                    result.subject.physical_factors[factor_key] = factor
-                elif factor_type == 'rights':
-                    result.subject.rights_factors[factor_key] = factor
-            
-            # 提取可比实例的值
+                    d = result.subject.physical_factors
+                else:
+                    d = result.subject.rights_factors
+                f = d.get(factor_key) or Factor(name=factor_key)
+                f.description = subject_value
+                f.desc_pos = Position(self.TABLE_FACTOR_DESC, row_idx, COL_SUBJECT)
+                d[factor_key] = f
+                self._sync_subject_fields_from_factor(result.subject, factor_key, subject_value)
+
+            # 可比实例A/B/C
             for i, case in enumerate(result.cases):
-                col = COL_A + i
-                if col < len(cells):
-                    value = cells[col]
-                    
-                    # 初始化因素
-                    if factor_type == 'location':
-                        if factor_key not in case.location_factors:
-                            case.location_factors[factor_key] = Factor(name=factor_key)
-                        case.location_factors[factor_key].description = value
-                        case.location_factors[factor_key].desc_pos = Position(self.TABLE_FACTOR_DESC, row_idx, col)
-                    elif factor_type == 'physical':
-                        if factor_key not in case.physical_factors:
-                            case.physical_factors[factor_key] = Factor(name=factor_key)
-                        case.physical_factors[factor_key].description = value
-                        case.physical_factors[factor_key].desc_pos = Position(self.TABLE_FACTOR_DESC, row_idx, col)
-                    elif factor_type == 'rights':
-                        if factor_key not in case.rights_factors:
-                            case.rights_factors[factor_key] = Factor(name=factor_key)
-                        case.rights_factors[factor_key].description = value
-                        case.rights_factors[factor_key].desc_pos = Position(self.TABLE_FACTOR_DESC, row_idx, col)
-    
+                col = [COL_A, COL_B, COL_C][i]
+                value = cells[col]
+                if value == '':
+                    continue
+
+                if factor_type == 'location':
+                    d = case.location_factors
+                elif factor_type == 'physical':
+                    d = case.physical_factors
+                else:
+                    d = case.rights_factors
+
+                f = d.get(factor_key) or Factor(name=factor_key)
+                f.description = value
+                f.desc_pos = Position(self.TABLE_FACTOR_DESC, row_idx, col)
+                d[factor_key] = f
+                self._sync_case_fields_from_factor(case, factor_key, value)
+
     def _extract_factor_levels(self, result: ShezhiExtractionResult):
-        """提取因素等级表"""
+        """提取因素等级表（按固定列读取，避免去重导致列错位）"""
         table = self.tables[self.TABLE_FACTOR_LEVEL]
-        
-        COL_A = 2
+
+        COL_CATEGORY = 0
+        COL_FACTOR = 1
+        COL_SUBJECT = 2
+        COL_A = 3
+        COL_B = 4
+        COL_C = 5
+
+        category_alias = {
+            '区位状况': '区位状况',
+            '实物状况': '实物状况',
+            '实物因素': '实物状况',
+            '权益状况': '权益状况',
+            '权益因素': '权益状况',
+        }
+
         current_category = ""
-        
         for row_idx, row in enumerate(table.rows[1:], 1):
-            cells_raw = [c.text.strip() for c in row.cells]
-            cells = []
-            for c in cells_raw:
-                if c not in cells:
-                    cells.append(c)
-            
-            if len(cells) < 2:
+            cells = [c.text.strip().replace('\n', ' ') for c in row.cells]
+            if len(cells) < 6:
                 continue
-            
-            first = cells[0]
-            
-            if first in ['区位状况', '实物状况', '权益状况']:
-                current_category = first
-                factor_name = cells[1] if len(cells) > 1 else ""
-            elif first in ['交易情况', '交易日期']:
+
+            raw_category = (cells[COL_CATEGORY] or '').replace(' ', '').replace('\u3000', '').replace('　', '')
+            factor_name = (cells[COL_FACTOR] or '').replace(' ', '').replace('\u3000', '').replace('　', '')
+
+            if raw_category in ('交易情况', '交易日期') or factor_name in ('交易情况', '交易日期'):
                 continue
-            else:
-                factor_name = first
-            
+
+            if raw_category in category_alias:
+                current_category = category_alias[raw_category]
+
             if not factor_name:
                 continue
-            
+
             if factor_name in self.LOCATION_FACTORS or current_category == '区位状况':
                 factor_type = 'location'
             elif factor_name in self.PHYSICAL_FACTORS or current_category == '实物状况':
@@ -552,60 +563,83 @@ class ShezhiExtractor:
                 factor_type = 'rights'
             else:
                 continue
-            
+
             factor_key = self._normalize_factor_name(factor_name)
-            
+
+            # 估价对象
+            subject_value = cells[COL_SUBJECT]
+            if subject_value != '':
+                if factor_type == 'location':
+                    d = result.subject.location_factors
+                elif factor_type == 'physical':
+                    d = result.subject.physical_factors
+                else:
+                    d = result.subject.rights_factors
+                f = d.get(factor_key) or Factor(name=factor_key)
+                f.level = subject_value
+                f.level_pos = Position(self.TABLE_FACTOR_LEVEL, row_idx, COL_SUBJECT)
+                d[factor_key] = f
+
+            # 可比实例A/B/C
             for i, case in enumerate(result.cases):
-                col = COL_A + i
-                if col < len(cells):
-                    value = cells[col]
-                    
-                    if factor_type == 'location':
-                        if factor_key not in case.location_factors:
-                            case.location_factors[factor_key] = Factor(name=factor_key)
-                        case.location_factors[factor_key].level = value
-                        case.location_factors[factor_key].level_pos = Position(self.TABLE_FACTOR_LEVEL, row_idx, col)
-                    elif factor_type == 'physical':
-                        if factor_key not in case.physical_factors:
-                            case.physical_factors[factor_key] = Factor(name=factor_key)
-                        case.physical_factors[factor_key].level = value
-                        case.physical_factors[factor_key].level_pos = Position(self.TABLE_FACTOR_LEVEL, row_idx, col)
-                    elif factor_type == 'rights':
-                        if factor_key not in case.rights_factors:
-                            case.rights_factors[factor_key] = Factor(name=factor_key)
-                        case.rights_factors[factor_key].level = value
-                        case.rights_factors[factor_key].level_pos = Position(self.TABLE_FACTOR_LEVEL, row_idx, col)
-    
+                col = [COL_A, COL_B, COL_C][i]
+                value = cells[col]
+                if value == '':
+                    continue
+                if factor_type == 'location':
+                    d = case.location_factors
+                elif factor_type == 'physical':
+                    d = case.physical_factors
+                else:
+                    d = case.rights_factors
+                f = d.get(factor_key) or Factor(name=factor_key)
+                f.level = value
+                f.level_pos = Position(self.TABLE_FACTOR_LEVEL, row_idx, col)
+                d[factor_key] = f
+
     def _extract_factor_indices(self, result: ShezhiExtractionResult):
-        """提取因素指数表"""
+        """提取因素指数表（按固定列读取，避免去重导致列错位）"""
         table = self.tables[self.TABLE_FACTOR_INDEX]
-        
-        COL_A = 2
+
+        COL_CATEGORY = 0
+        COL_FACTOR = 1
+        COL_SUBJECT = 2
+        COL_A = 3
+        COL_B = 4
+        COL_C = 5
+
+        category_alias = {
+            '区位状况': '区位状况',
+            '实物状况': '实物状况',
+            '实物因素': '实物状况',
+            '权益状况': '权益状况',
+            '权益因素': '权益状况',
+        }
+
+        def to_int(v: str) -> int:
+            try:
+                return int(re.sub(r'[^0-9]', '', v))
+            except Exception:
+                return 100
+
         current_category = ""
-        
         for row_idx, row in enumerate(table.rows[1:], 1):
-            cells_raw = [c.text.strip() for c in row.cells]
-            cells = []
-            for c in cells_raw:
-                if c not in cells:
-                    cells.append(c)
-            
-            if len(cells) < 2:
+            cells = [c.text.strip().replace('\n', ' ') for c in row.cells]
+            if len(cells) < 6:
                 continue
-            
-            first = cells[0]
-            
-            if first in ['区位状况', '实物状况', '权益状况']:
-                current_category = first
-                factor_name = cells[1] if len(cells) > 1 else ""
-            elif first in ['交易情况', '交易日期']:
+
+            raw_category = (cells[COL_CATEGORY] or '').replace(' ', '').replace('\u3000', '').replace('　', '')
+            factor_name = (cells[COL_FACTOR] or '').replace(' ', '').replace('\u3000', '').replace('　', '')
+
+            if raw_category in ('交易情况', '交易日期') or factor_name in ('交易情况', '交易日期'):
                 continue
-            else:
-                factor_name = first
-            
+
+            if raw_category in category_alias:
+                current_category = category_alias[raw_category]
+
             if not factor_name:
                 continue
-            
+
             if factor_name in self.LOCATION_FACTORS or current_category == '区位状况':
                 factor_type = 'location'
             elif factor_name in self.PHYSICAL_FACTORS or current_category == '实物状况':
@@ -614,40 +648,47 @@ class ShezhiExtractor:
                 factor_type = 'rights'
             else:
                 continue
-            
+
             factor_key = self._normalize_factor_name(factor_name)
-            
+
+            # 估价对象
+            subject_value = cells[COL_SUBJECT]
+            if subject_value != '':
+                if factor_type == 'location':
+                    d = result.subject.location_factors
+                elif factor_type == 'physical':
+                    d = result.subject.physical_factors
+                else:
+                    d = result.subject.rights_factors
+                f = d.get(factor_key) or Factor(name=factor_key)
+                f.index = to_int(subject_value)
+                f.index_pos = Position(self.TABLE_FACTOR_INDEX, row_idx, COL_SUBJECT)
+                d[factor_key] = f
+
+            # 可比实例A/B/C
             for i, case in enumerate(result.cases):
-                col = COL_A + i
-                if col < len(cells):
-                    try:
-                        value = int(cells[col])
-                    except:
-                        value = 100
-                    
-                    if factor_type == 'location':
-                        if factor_key not in case.location_factors:
-                            case.location_factors[factor_key] = Factor(name=factor_key)
-                        case.location_factors[factor_key].index = value
-                        case.location_factors[factor_key].index_pos = Position(self.TABLE_FACTOR_INDEX, row_idx, col)
-                    elif factor_type == 'physical':
-                        if factor_key not in case.physical_factors:
-                            case.physical_factors[factor_key] = Factor(name=factor_key)
-                        case.physical_factors[factor_key].index = value
-                        case.physical_factors[factor_key].index_pos = Position(self.TABLE_FACTOR_INDEX, row_idx, col)
-                    elif factor_type == 'rights':
-                        if factor_key not in case.rights_factors:
-                            case.rights_factors[factor_key] = Factor(name=factor_key)
-                        case.rights_factors[factor_key].index = value
-                        case.rights_factors[factor_key].index_pos = Position(self.TABLE_FACTOR_INDEX, row_idx, col)
-    
+                col = [COL_A, COL_B, COL_C][i]
+                value = cells[col]
+                if value == '':
+                    continue
+                if factor_type == 'location':
+                    d = case.location_factors
+                elif factor_type == 'physical':
+                    d = case.physical_factors
+                else:
+                    d = case.rights_factors
+                f = d.get(factor_key) or Factor(name=factor_key)
+                f.index = to_int(value)
+                f.index_pos = Position(self.TABLE_FACTOR_INDEX, row_idx, col)
+                d[factor_key] = f
+
     def _extract_corrections(self, result: ShezhiExtractionResult):
         """提取修正系数"""
         table = self.tables[self.TABLE_CORRECTION]
-        
+
         # 修正计算表列: A=1, B=2, C=3
         COL_A = 1
-        
+
         ROW_MAPPING = {
             '交易价格': 'transaction_price',
             '交易情况修正': 'transaction_correction',
@@ -657,24 +698,24 @@ class ShezhiExtractor:
             '权益状况': 'rights_correction',
             '修正后单价': 'adjusted_price',
         }
-        
+
         for row_idx, row in enumerate(table.rows):
             cells = [c.text.strip() for c in row.cells]
-            
+
             if len(cells) < 2:
                 continue
-            
+
             label = cells[0].replace(' ', '').replace('\u3000', '')
-            
+
             field_name = None
             for key, field in ROW_MAPPING.items():
                 if key in label:
                     field_name = field
                     break
-            
+
             if not field_name:
                 continue
-            
+
             for i, case in enumerate(result.cases):
                 col = COL_A + i
                 if col < len(cells):
@@ -688,16 +729,16 @@ class ShezhiExtractor:
                         setattr(case, field_name, loc_val)
                     except:
                         pass
-    
+
     def _extract_floor_factor(self, result: ShezhiExtractionResult):
         """提取楼层修正系数"""
         match = re.search(r'×\s*(\d+)%\s*[＝=]', self.full_text)
         if match:
             result.floor_factor = int(match.group(1)) / 100
-    
+
     def _extract_extended_info(self, result: ShezhiExtractionResult):
         """提取扩展信息（建成年代、价值时点、估价目的等）"""
-        
+
         # 1. 建成年代 - 从段落文本中提取
         # 匹配模式: "建成于XXXX年" 或 "约建成于本世纪初" 或 "建成年代：XXXX"
         build_patterns = [
@@ -708,7 +749,7 @@ class ShezhiExtractor:
             r'约建成于本世纪初',  # 特殊处理
             r'建成于上世纪(\d{2})年代',
         ]
-        
+
         for pattern in build_patterns:
             match = re.search(pattern, self.full_text)
             if match:
@@ -722,32 +763,32 @@ class ShezhiExtractor:
                     else:
                         result.subject.build_year = int(year_str)
                 break
-        
+
         # 2. 价值时点 - 从段落文本中提取
         value_date_patterns = [
             r'价值时点[：:]\s*(\d{4})[年\.](\d{1,2})[月\.](\d{1,2})',
             r'价值时点(\d{4})\.(\d{1,2})\.(\d{1,2})',
             r'价值时点为(\d{4})年(\d{1,2})月(\d{1,2})日',
         ]
-        
+
         for pattern in value_date_patterns:
             match = re.search(pattern, self.full_text)
             if match:
                 result.subject.value_date = f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}"
                 break
-        
+
         # 3. 估价目的 - 从段落文本中提取
         purpose_patterns = [
             r'估价目的[：:是为]*(.{5,50}?)(?:。|$)',
             r'本次估价目的是(.{5,50}?)(?:。|$)',
         ]
-        
+
         for pattern in purpose_patterns:
             match = re.search(pattern, self.full_text)
             if match:
                 result.subject.appraisal_purpose = match.group(1).strip()
                 break
-        
+
         # 4. 土地终止日期 - 从权属表中提取
         if len(self.tables) > self.TABLE_PROPERTY_RIGHTS:
             table = self.tables[self.TABLE_PROPERTY_RIGHTS]
@@ -761,7 +802,7 @@ class ShezhiExtractor:
                     date_match = re.search(r'(\d{4}/\d{1,2}/\d{1,2})', cell)
                     if date_match:
                         result.subject.land_end_date = date_match.group(1)
-        
+
         # 5. 解析楼层信息（从字符串"8/10"解析为数字）
         if result.subject.floor and '/' in result.subject.floor:
             parts = result.subject.floor.split('/')
@@ -771,57 +812,82 @@ class ShezhiExtractor:
                     result.subject.total_floor = int(parts[1])
                 except:
                     pass
-    
+
     def _parse_district(self, result: ShezhiExtractionResult):
         """从地址解析区域信息"""
         address = result.subject.address.value or ""
-        
+
         # 常见区域关键词
         district_patterns = [
             r'([\u4e00-\u9fa5]{2,4}区)',   # XX区
             r'([\u4e00-\u9fa5]{2,4}县)',   # XX县
             r'([\u4e00-\u9fa5]{2,4}市)',   # XX市（县级市）
         ]
-        
+
         for pattern in district_patterns:
             match = re.search(pattern, address)
             if match:
                 result.subject.district = match.group(1)
                 break
-        
+
         # 街道/镇
         street_patterns = [
             r'([\u4e00-\u9fa5]{2,6}街道)',
             r'([\u4e00-\u9fa5]{2,4}镇)',
             r'([\u4e00-\u9fa5]{2,4}乡)',
         ]
-        
+
         for pattern in street_patterns:
             match = re.search(pattern, address)
             if match:
                 result.subject.street = match.group(1)
                 break
-        
+
         # 同样处理可比实例
         for case in result.cases:
             case_addr = case.address.value or ""
-            
+
             for pattern in district_patterns:
                 match = re.search(pattern, case_addr)
                 if match:
                     case.district = match.group(1)
                     break
-            
+
             for pattern in street_patterns:
                 match = re.search(pattern, case_addr)
                 if match:
                     case.street = match.group(1)
                     break
-    
+
+    def _sync_subject_fields_from_factor(self, subject: Subject, factor_key: str, val: str):
+        """把因素描述同步到 Subject 的新增字段（不改变输出结构）"""
+        v = (val or "").strip()
+        if not v:
+            return
+        if factor_key == "orientation" and not subject.orientation:
+            subject.orientation = v
+        elif factor_key == "decoration" and not subject.decoration:
+            subject.decoration = v
+        elif factor_key == "structure" and not subject.structure:
+            subject.structure = v
+
+    def _sync_case_fields_from_factor(self, case: Case, factor_key: str, val: str):
+        """把因素描述同步到 Case 的新增字段（不改变输出结构）"""
+        v = (val or "").strip()
+        if not v:
+            return
+        if factor_key == "orientation" and not case.orientation:
+            case.orientation = v
+        elif factor_key == "decoration" and not case.decoration:
+            case.decoration = v
+        elif factor_key == "structure" and not case.structure:
+            case.structure = v
+
+
     def _normalize_factor_name(self, name: str) -> str:
         """标准化因素名称"""
         name = name.replace(' ', '').replace('\u3000', '').replace('　', '')
-        
+
         mapping = {
             '区域位置': 'location_region',
             '楼幢位置': 'location_building',
@@ -848,7 +914,7 @@ class ShezhiExtractor:
             '拖欠税费状况': 'tax',
             '其他权益状况': 'other_rights',
         }
-        
+
         return mapping.get(name, name)
 
 
