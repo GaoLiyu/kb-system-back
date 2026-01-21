@@ -93,24 +93,41 @@ class Subject:
     total_price: LocatedValue = field(default_factory=LocatedValue)
     
     # 权属
-    cert_no: str = ""
-    owner: str = ""
-    structure: str = ""
-    floor: str = ""
-    usage: str = ""
-    land_type: str = ""
+    # 权属
+    cert_no: str = ""  # 房屋所有权证证号
+    owner: str = ""  # 房屋所有权人
+    structure: str = ""  # 结构
+    floor: str = ""  # 楼层
+    plan_usage: str = ""  # 规划用途
+    land_use_type: str = ""  # 使用权类型
+    land_type: str = ""  # 地类（用途）
+    land_area: float = 0.0  # 土地面积
+    end_date: str = ""  # 终止日期
     
     # 新增字段
     district: str = ""           # 区域（区/县）
     street: str = ""             # 街道/镇
+    location: str = ""           # 位置
+    data_source: str = ""        # 数据来源
     build_year: int = 0          # 建成年份
-    total_floor: int = 0         # 总楼层
-    current_floor: int = 0       # 所在楼层
+    total_floor: str = ""         # 总楼层
+    current_floor: str = ""       # 所在楼层
     orientation: str = ""        # 朝向
     decoration: str = ""         # 装修状况
     land_end_date: str = ""      # 土地终止日期
     value_date: str = ""         # 价值时点
+    usage: str = ""             # 用途
     appraisal_purpose: str = ""  # 估价目的
+
+    # 新增价格内涵里面的字段
+    property_scope: str = ""  # 财产范围
+    payment_methods: str = ""  # 付款方式
+    financing_conditions: str = ""  # 融资条件
+    tax_burden: str = ""  # 税负
+    unit_measurement: str = ""  # 计价单位
+    price_type: str = ""  # 价格类型
+    transaction_price: LocatedValue = field(default_factory=LocatedValue)
+    transaction_date: str = ""
     
     # 因素
     location_factors: Dict[str, Factor] = field(default_factory=dict)
@@ -319,27 +336,50 @@ class ShezhiExtractor:
     def _extract_property_rights(self, result: ShezhiExtractionResult):
         """提取权属表"""
         table = self.tables[self.TABLE_PROPERTY_RIGHTS]
-        
-        for row_idx, row in enumerate(table.rows):
-            cells = [c.text.strip() for c in row.cells]
-            row_text = ' '.join(cells)
-            
-            if '不动产权第' in row_text or '不动产权证' in row_text:
-                for cell in cells:
-                    if '不动产权' in cell and '号' in cell:
-                        result.subject.cert_no = cell
-                    elif cell in ['钢混', '砖混', '框架', '砖木']:
-                        result.subject.structure = cell
-                    elif '/' in cell and any(c.isdigit() for c in cell) and len(cell) < 10:
-                        result.subject.floor = cell
-            
-            if '权利人' in row_text:
-                for i, cell in enumerate(cells):
-                    if cell and cell not in ['权利人', '不动产权利人', '坐落', '结构']:
-                        if '不动产权' not in cell and '/' not in cell:
-                            result.subject.owner = cell
-                            break
-    
+
+        row = table.rows[2]
+        row2 = table.rows[4]
+
+        cell = [c.text.strip() for c in row.cells]
+        cell2 = [c.text.strip() for c in row2.cells]
+
+        if len(cell) >= 7 and len(cell2) >= 7:
+            # 不动产权证证号
+            if cell[0] and not result.subject.cert_no:
+                result.subject.cert_no = cell[0].strip()
+
+            # 不动产权人
+            if  cell[1] and not result.subject.owner:
+                result.subject.owner = cell[1].strip()
+
+            # 结构
+            if cell[3] and not result.subject.structure:
+                result.subject.structure = cell[3].strip()
+
+            # 所在层数/总层数
+            if cell[4] and not result.subject.floor:
+                result.subject.floor = cell[4].strip()
+
+            # 规划用途
+            if cell[6] and not result.subject.plan_usage:
+                result.subject.plan_usage = cell[6].strip()
+
+            # 使用权类型
+            if cell2[3] and not result.subject.land_use_type:
+                result.subject.land_use_type = cell2[3].strip()
+
+            # 地类（用途）
+            if cell2[4] and not result.subject.land_type:
+                result.subject.land_type = cell2[4].strip()
+
+            # 土地面积
+            if cell2[5] and not result.subject.land_area:
+                result.subject.land_area = float(cell2[5])
+
+            # 终止日期
+            if cell2[6] and not result.subject.end_date:
+                result.subject.end_date = cell2[6].strip()
+
     def _extract_basic_info(self, result: ShezhiExtractionResult):
         """提取基础信息表"""
         table = self.tables[self.TABLE_BASIC_INFO]
@@ -374,12 +414,16 @@ class ShezhiExtractor:
                         )
             
             elif '位置' in label and '楼' not in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.location = cells[COL_SUBJECT]
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.location = cells[col]
             
             elif '来源' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.data_source = cells[COL_SUBJECT]
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
@@ -393,22 +437,62 @@ class ShezhiExtractor:
                     col = COL_A + i
                     if col < len(cells):
                         case.usage = cells[col]
-            
-            elif '成交基价' in label or '交易价格' in label:
+
+            elif '财产范围' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.property_scope = cells[COL_SUBJECT]
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
-                        try:
-                            price = float(re.sub(r'[^\d.]', '', cells[col]))
-                            case.transaction_price = LocatedValue(
-                                value=price,
-                                position=Position(self.TABLE_BASIC_INFO, row_idx, col),
-                                raw_text=cells[col]
-                            )
-                        except:
-                            pass
-            
-            elif '建筑面积' in label:
+                        case.property_scope = cells[col]
+
+            elif '付款方式' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.payment_methods = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.payment_methods = cells[col]
+
+            elif '融资条件' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.financing_conditions = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.financing_conditions = cells[col]
+
+            elif '税' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.tax_burden = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.tax_burden = cells[col]
+
+            elif '单位' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.unit_measurement = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.unit_measurement = cells[col]
+
+            elif '价格类型' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.price_type = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.price_type = cells[col]
+
+            elif '评估面积' in label or '建筑面积' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.building_area = LocatedValue(
+                        value=cells[COL_SUBJECT],
+                        position=Position(self.TABLE_BASIC_INFO, row_idx, COL_SUBJECT),
+                        raw_text=cells[COL_SUBJECT]
+                    )
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
@@ -421,12 +505,35 @@ class ShezhiExtractor:
                             )
                         except:
                             pass
-            
+
             elif '交易日期' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.transaction_date = cells[COL_SUBJECT]
+                # result.subject.transaction_date = cells[COL_SUBJECT]
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.transaction_date = cells[col]
+            
+            elif '成交基价' in label or '交易价格' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.transaction_price = LocatedValue(
+                        value=cells[COL_SUBJECT],
+                        position=Position(self.TABLE_BASIC_INFO, row_idx, COL_SUBJECT),
+                        raw_text=cells[COL_SUBJECT]
+                    )
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        try:
+                            price = float(re.sub(r'[^\d.]', '', cells[col]))
+                            case.transaction_price = LocatedValue(
+                                value=price,
+                                position=Position(self.TABLE_BASIC_INFO, row_idx, col),
+                                raw_text=cells[col]
+                            )
+                        except:
+                            pass
     
     def _extract_factor_descriptions(self, result: ShezhiExtractionResult):
         """提取因素描述表（按固定列读取，避免去重导致列错位）
@@ -808,8 +915,8 @@ class ShezhiExtractor:
             parts = result.subject.floor.split('/')
             if len(parts) == 2:
                 try:
-                    result.subject.current_floor = int(parts[0])
-                    result.subject.total_floor = int(parts[1])
+                    result.subject.current_floor = str(parts[0])
+                    result.subject.total_floor = str(parts[1])
                 except:
                     pass
 
@@ -926,4 +1033,4 @@ if __name__ == "__main__":
     extractor = ShezhiExtractor()
     result = extractor.extract("./data/docs/涉执报告-比较法.docx")
 
-    print(result)
+    print(result.subject)

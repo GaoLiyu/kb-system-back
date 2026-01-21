@@ -39,71 +39,112 @@ class Case:
     data_source: str = ""
     building_area: LocatedValue = field(default_factory=LocatedValue)
     transaction_price: LocatedValue = field(default_factory=LocatedValue)  # 交易单价
-    
+
     # 标准房特有的修正系数
     structure_factor: LocatedValue = field(default_factory=LocatedValue)  # 结构修正
-    floor_factor: LocatedValue = field(default_factory=LocatedValue)      # 层次修正
+    floor_factor: LocatedValue = field(default_factory=LocatedValue)  # 层次修正
     orientation_factor: LocatedValue = field(default_factory=LocatedValue)  # 朝向修正
-    age_factor: LocatedValue = field(default_factory=LocatedValue)        # 成新修正
+    age_factor: LocatedValue = field(default_factory=LocatedValue)  # 成新修正
+    east_to_west_factor: LocatedValue = field(default_factory=LocatedValue)  # 东西至修正
     physical_composite: LocatedValue = field(default_factory=LocatedValue)  # 实体状况综合
-    
+
     # 计算表中的修正
-    p1_transaction: str = ""      # P1交易情况修正
-    p2_date: str = ""             # P2交易日期修正
-    p3_physical: str = ""         # P3实体因素修正
-    p4_location: str = ""         # P4区位状况修正
+    p1_transaction: str = ""  # P1交易情况修正
+    p2_date: str = ""  # P2交易日期修正
+    p3_physical: str = ""  # P3实体因素修正
+    p4_location: str = ""  # P4区位状况修正
     composite_result: LocatedValue = field(default_factory=LocatedValue)  # P1×P2×P3×P4结果
-    vs_result: LocatedValue = field(default_factory=LocatedValue)         # Vs×结果
+    vs_result: LocatedValue = field(default_factory=LocatedValue)  # Vs×结果
     decoration_price: LocatedValue = field(default_factory=LocatedValue)  # 装修重置价
     attachment_price: LocatedValue = field(default_factory=LocatedValue)  # 附属物单价
-    final_price: LocatedValue = field(default_factory=LocatedValue)       # 比准价格
+    final_price: LocatedValue = field(default_factory=LocatedValue)  # 比准价格
+
+    cart_type: str = ""  # 证号类型
+    cart_code: str = ""  # 证号编码
+    district: str = ""  # 区域（区/县）
+    street: str = ""  # 街道/镇
+    build_year: int = 0  # 建成年份
+    total_floor: int = 0  # 总楼层
+    current_floor: int = 0  # 所在楼层
+    orientation: str = ""  # 朝向（文本描述）
+    decoration: str = ""  # 装修状况
+    structure: str = ""  # 建筑结构
+    usage: str = ""  # 房屋性质
+    transaction_date: str = ""  # 交易日期
+    location_code: str = ""  # 区号
+    east_to_west: str = ""  # 东西至
+    appendages: str = ""  # 附属物
+    avg_listing_price: LocatedValue = field(default_factory=LocatedValue) # 对应时点本片区二手房挂牌均价
 
 
 @dataclass
 class Subject:
-    """估价对象（标准房）"""
+    """估价对象（标准房 - 增强版）"""
     address: LocatedValue = field(default_factory=LocatedValue)
     building_area: LocatedValue = field(default_factory=LocatedValue)
-    
+    unit_price: LocatedValue = field(default_factory=LocatedValue)  # 评估单价
+    total_price: LocatedValue = field(default_factory=LocatedValue)  # 评估总价
+    transaction_price: LocatedValue = field(default_factory=LocatedValue)  # 交易单价
+
     # 修正系数
     structure_factor: LocatedValue = field(default_factory=LocatedValue)
     floor_factor: LocatedValue = field(default_factory=LocatedValue)
     orientation_factor: LocatedValue = field(default_factory=LocatedValue)
     age_factor: LocatedValue = field(default_factory=LocatedValue)
+    east_to_west_factor: LocatedValue = field(default_factory=LocatedValue)
     physical_composite: LocatedValue = field(default_factory=LocatedValue)
-    
-    # 区位
-    location_code: str = ""
+
+    cart_type: str = "" # 证号类型
+    cart_code: str = "" # 证号编码
+    district: str = ""  # 区域（区/县）
+    street: str = ""  # 街道/镇
+    build_year: int = 0  # 建成年份
+    total_floor: int = 0  # 总楼层
+    current_floor: int = 0  # 所在楼层
+    orientation: str = ""  # 朝向（文本描述）
+    decoration: str = ""  # 装修状况
+    structure: str = ""  # 建筑结构
+    usage: str = ""  # 房屋性质
+    transaction_date: str = ""  # 价值时点 && 交易时间
+    location_code: str = "" # 区号
+    east_to_west: str = "" # 东西至
+    appendages: str = "" # 附属物
+    avg_listing_price: LocatedValue = field(default_factory=LocatedValue)  # 对应时点本片区二手房挂牌均价
+
+    appraisal_purpose: str = ""  # 估价目的
 
 
 @dataclass
 class BiaozhunfangExtractionResult:
-    """标准房报告提取结果"""
+    """标准房报告提取结果（增强版）"""
     source_file: str = ""
     subject: Subject = field(default_factory=Subject)
     cases: List[Case] = field(default_factory=list)
-    
+
     # 最终结果（比准价格的平均值或加权值）
     final_price: LocatedValue = field(default_factory=LocatedValue)
 
 
 class BiaozhunfangExtractor:
-    """标准房报告提取器"""
-    
+    """标准房报告提取器（增强版）"""
+
     # 表格索引（默认值，会被自动检测覆盖）
-    TABLE_MAIN_INFO = 6        # 主要信息表（34行）
-    TABLE_DETAIL = 19          # 详细因素表（30行）
-    TABLE_CORRECTION = 20      # 修正计算表（11行）
+    TABLE_MAIN_INFO = 6  # 主要信息表（34行）
+    TABLE_DETAIL = 19  # 详细因素表（30行）
+    TABLE_CORRECTION = 20  # 修正计算表（11行）
+    TABLE_RESULT_SUMMARY = 2  # 结果汇总表
 
     def __init__(self, auto_detect: bool = True):
         self.doc = None
         self.tables = []
+        self.full_text = ""  # 新增：完整文本用于正则提取
         self.auto_detect = auto_detect
 
     def extract(self, doc_path: str) -> BiaozhunfangExtractionResult:
         """提取标准房报告"""
         self.doc = Document(doc_path)
         self.tables = self.doc.tables
+        self.full_text = "\n".join([p.text for p in self.doc.paragraphs])
 
         result = BiaozhunfangExtractionResult(source_file=os.path.basename(doc_path))
 
@@ -119,13 +160,29 @@ class BiaozhunfangExtractor:
         result.cases = [Case(case_id='A'), Case(case_id='B'),
                         Case(case_id='C'), Case(case_id='D')]
 
-        # 1. 从详细因素表提取基本信息和修正系数
-        self._extract_detail_table(result)
-        print(f"   ✓ 详细信息表: 地址、面积、修正系数")
+        # 1. 提取结果汇总表（单价、总价）
+        self._extract_result_summary(result)
+        print(f"   ✓ 结果汇总表")
 
-        # 2. 从修正计算表提取修正计算
+        # 2. 提取主要信息表
+        self._extract_basic_table(result)
+        print(f"   ✓ 主要信息表: 地址、面积、单价、总价")
+
+        # 2. 从详细因素表提取基本信息和修正系数
+        self._extract_detail_table(result)
+        print(f"   ✓ 修正系数")
+
+        # 3. 从修正计算表提取修正计算
         self._extract_correction_table(result)
         print(f"   ✓ 修正计算表: 比准价格")
+
+        # 4. 提取扩展信息（估价目的）
+        self._extract_extended_info(result)
+        print(f"   ✓ 扩展信息: 估价目的")
+
+        # 5. 解析区域信息
+        self._parse_district(result)
+        print(f"   ✓ 区域解析: {result.subject.district} {result.subject.street}")
 
         return result
 
@@ -135,155 +192,287 @@ class BiaozhunfangExtractor:
             if len(table.rows) == 0:
                 continue
 
-            # 获取表头
             header = ' '.join([c.text.strip() for c in table.rows[0].cells[:7]])
 
-            # 检测主要信息表（包含"估价对象"和"可比实例"，且有4个可比实例A/B/C/D）
-            if '估价对象' in header and '可比实例' in header:
-                # 检查是否有4个可比实例（A/B/C/D）
-                if '可比实例B' in header or 'B' in header:
-                    # 进一步检查第一行内容
-                    if len(table.rows) > 1:
-                        row1 = ' '.join([c.text.strip() for c in table.rows[1].cells[:7]])
-                        # 主表的第一行通常是案例来源或其他信息
-                        if '来源' in row1 or '时间' in row1 or '交易' in row1:
-                            self.TABLE_MAIN_INFO = i
-                            continue
+            # 检测结果汇总表
+            if '评估' in header or '单价' in header:
+                self.TABLE_RESULT_SUMMARY = i
+                continue
 
-            # 检测详细因素表（"内容"、"标准房"、"可比实例"）
+            # 检测详细因素表
             if '内容' in header and '标准房' in header and '可比实例' in header:
                 self.TABLE_DETAIL = i
-                # 修正计算表通常紧跟在详细因素表之后
                 continue
 
-            # 检测修正计算表（包含"交易情况修正"或"P1"、"P2"等）
+            # 检测修正计算表
             if len(table.rows) > 2:
-                # 检查表格内容
                 table_text = ' '.join([c.text.strip() for row in table.rows[:5] for c in row.cells[:5]])
                 if ('交易情况' in table_text and '修正' in table_text) or \
-                   ('P1' in table_text and 'P2' in table_text):
+                        ('P1' in table_text and 'P2' in table_text):
                     self.TABLE_CORRECTION = i
 
-        # 如果没有找到详细因素表，尝试用主信息表的索引推算
-        if self.TABLE_DETAIL == 19 and len(self.tables) < 20:
-            # 如果表格数量不足，尝试查找包含"内容"列的表格
-            for i, table in enumerate(self.tables):
-                if len(table.rows) > 0:
-                    header = ' '.join([c.text.strip() for c in table.rows[0].cells[:7]])
-                    if '内容' in header:
-                        self.TABLE_DETAIL = i
-                        # 修正计算表通常是详细表后的下一个或几个表格
-                        for j in range(i+1, min(i+5, len(self.tables))):
-                            if len(self.tables[j].rows) > 0:
-                                check_text = ' '.join([c.text.strip() for row in self.tables[j].rows[:3] for c in row.cells[:4]])
-                                if 'P1' in check_text or '交易情况' in check_text:
-                                    self.TABLE_CORRECTION = j
-                                    break
-                        break
-    
-    def _extract_detail_table(self, result: BiaozhunfangExtractionResult):
-        """提取详细因素表（表格19）"""
-        table = self.tables[self.TABLE_DETAIL]
-        
-        # 列映射：估价对象=1, A=2, B=3, C=4, D=5
-        COL_SUBJECT = 1
-        COL_A = 2
-        COL_B = 3
-        COL_C = 4
-        COL_D = 5
-        
-        # 行映射（基于分析结果）
-        ROW_DATA_SOURCE = 2      # 案例来源
-        ROW_ADDRESS = 3          # 地址
-        ROW_AREA = 4             # 建筑面积
-        ROW_STRUCTURE = 5        # 结构修正系数
-        ROW_FLOOR = 6            # 层次修正系数
-        ROW_ORIENTATION = 7      # 朝向修正系数
-        ROW_AGE = 8              # 成新修正系数
-        ROW_PHYSICAL_COMPOSITE = 10  # 实体状况系数综合
-        ROW_LOCATION_CODE = 14   # 区位代码
-        
+    def _extract_result_summary(self, result: BiaozhunfangExtractionResult):
+        """提取结果汇总表（单价、总价）"""
+        if len(self.tables) <= self.TABLE_RESULT_SUMMARY:
+            return
+
+        table = self.tables[self.TABLE_RESULT_SUMMARY]
+
+        if len(table.rows) < 2:
+            return
+
+        # cell = [c.text.strip() for c in table.rows[1].cells]
+
+        result.subject.unit_price = LocatedValue(
+            value=float(table.rows[2].cells[2].text),
+            position=Position(table_index=self.TABLE_RESULT_SUMMARY, row_index=2, col_index=2),
+            raw_text=table.rows[1].cells[2].text.strip(),
+        )
+
+        result.subject.total_price = LocatedValue(
+            value=float(table.rows[1].cells[2].text),
+            position=Position(table_index=self.TABLE_RESULT_SUMMARY, row_index=1, col_index=2),
+            raw_text=table.rows[1].cells[2].text.strip(),
+        )
+
+    def _extract_basic_table(self, result: BiaozhunfangExtractionResult):
+        """提取主要信息表"""
+        if len(self.tables) <= self.TABLE_MAIN_INFO:
+            return
+
+        table = self.tables[self.TABLE_MAIN_INFO]
+
+        COL_SUBJECT = 3
+        COL_A = 4
+        COL_B = 5
+        COL_C = 6
+        COL_D = 7
+
         for row_idx, row in enumerate(table.rows):
             cells = [c.text.strip() for c in row.cells]
-            
-            if len(cells) < 5:
+
+            if len(cells) < 6:
                 continue
-            
-            if row_idx == ROW_ADDRESS:
-                # 估价对象地址
-                if len(cells) > COL_SUBJECT:
-                    result.subject.address = LocatedValue(
-                        value=cells[COL_SUBJECT],
-                        position=Position(self.TABLE_DETAIL, row_idx, COL_SUBJECT),
-                        raw_text=cells[COL_SUBJECT]
-                    )
-                # 可比实例地址
+
+            label = (cells[0]).replace(' ', '').replace('\u3000', '')
+            label2 = (cells[3]).replace(' ', '').replace('\u3000', '')
+
+            # 案例来源
+            if label2 == '估价对象' and '可比实例' not in cells[COL_A] and cells[COL_A] != '案例来源':
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.data_source = cells[col]
+
+            elif '证' in label and '类型' in label:
+                result.subject.cart_type = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.cart_type = cells[col]
+
+            elif '证' in label and '编码' in label:
+                result.subject.cart_code = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.cart_code = cells[col]
+
+            elif '地址' in label or '坐落' in label:
+                result.subject.address = LocatedValue(
+                    value=cells[COL_SUBJECT],
+                    position=Position(self.TABLE_MAIN_INFO, row_idx, COL_SUBJECT),
+                    raw_text=cells[COL_SUBJECT]
+                )
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.address = LocatedValue(
                             value=cells[col],
-                            position=Position(self.TABLE_DETAIL, row_idx, col),
+                            position=Position(self.TABLE_MAIN_INFO, row_idx, col),
                             raw_text=cells[col]
                         )
-            
-            elif row_idx == ROW_DATA_SOURCE:
-                for i, case in enumerate(result.cases):
-                    col = COL_A + i
-                    if col < len(cells):
-                        case.data_source = cells[col]
-            
-            elif row_idx == ROW_AREA:
-                # 估价对象面积
-                if len(cells) > COL_SUBJECT:
-                    try:
-                        result.subject.building_area = LocatedValue(
-                            value=float(cells[COL_SUBJECT]),
-                            position=Position(self.TABLE_DETAIL, row_idx, COL_SUBJECT),
-                            raw_text=cells[COL_SUBJECT]
-                        )
-                    except:
-                        pass
-                # 可比实例面积
+
+            elif '评估面积' in label or '建筑面积' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.building_area = LocatedValue(
+                        value=cells[COL_SUBJECT],
+                        position=Position(self.TABLE_MAIN_INFO, row_idx, COL_SUBJECT),
+                        raw_text=cells[COL_SUBJECT]
+                    )
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         try:
+                            area = float(re.sub(r'[^\d.]', '', cells[col]))
                             case.building_area = LocatedValue(
-                                value=float(cells[col]),
-                                position=Position(self.TABLE_DETAIL, row_idx, col),
+                                value=area,
+                                position=Position(self.TABLE_MAIN_INFO, row_idx, col),
                                 raw_text=cells[col]
                             )
                         except:
                             pass
-            
-            elif row_idx == ROW_STRUCTURE:
-                self._extract_factor_row(result, cells, row_idx, 'structure_factor', 
-                                         COL_SUBJECT, COL_A)
-            
-            elif row_idx == ROW_FLOOR:
-                self._extract_factor_row(result, cells, row_idx, 'floor_factor',
-                                         COL_SUBJECT, COL_A)
-            
-            elif row_idx == ROW_ORIENTATION:
-                self._extract_factor_row(result, cells, row_idx, 'orientation_factor',
-                                         COL_SUBJECT, COL_A)
-            
-            elif row_idx == ROW_AGE:
-                self._extract_factor_row(result, cells, row_idx, 'age_factor',
-                                         COL_SUBJECT, COL_A)
-            
-            elif row_idx == ROW_PHYSICAL_COMPOSITE:
-                self._extract_factor_row(result, cells, row_idx, 'physical_composite',
-                                         COL_SUBJECT, COL_A)
-            
-            elif row_idx == ROW_LOCATION_CODE:
-                if len(cells) > COL_SUBJECT:
+
+            elif '结构' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.structure = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.structure = cells[col]
+
+            elif '层次' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.current_floor = cells[COL_SUBJECT].split('/')[0]
+                    result.subject.total_floor = cells[COL_SUBJECT].split('/')[1]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.current_floor = cells[col].split('/')[0]
+                        case.total_floor = cells[col].split('/')[1]
+
+            elif '朝向' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.orientation = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.orientation = cells[col]
+
+            elif '建成时间' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.build_year = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.build_year = cells[col]
+
+            elif '东西' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.east_to_west = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.east_to_west = cells[col]
+
+            elif '装修' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.decoration = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.decoration = cells[col]
+
+            elif '附属物' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.appendages = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.appendages = cells[col]
+
+            elif '区位' in label and '代码' in label:
+                if COL_SUBJECT < len(cells):
                     result.subject.location_code = cells[COL_SUBJECT]
-    
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.location_code = cells[col]
+
+            elif '房屋性质' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.usage = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.usage = cells[col]
+
+            elif '交易时间' in label or '价值时点' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.transaction_date = cells[COL_SUBJECT]
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.transaction_date = cells[col]
+
+            elif '交易单价' in label:
+                if COL_SUBJECT < len(cells) and not result.subject.transaction_price:
+                    result.subject.transaction_price = LocatedValue(
+                        value=float(cells[COL_SUBJECT]),
+                        position=Position(self.TABLE_MAIN_INFO, row_idx, COL_SUBJECT),
+                        raw_text=cells[COL_SUBJECT]
+                    )
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.transaction_price = LocatedValue(
+                            value=float(cells[col]),
+                            position=Position(self.TABLE_MAIN_INFO, row_idx, col),
+                            raw_text=cells[col]
+                        )
+
+            elif '二手房' in label or '挂牌均价' in label:
+                if COL_SUBJECT < len(cells):
+                    result.subject.avg_listing_price = LocatedValue(
+                        value=float(cells[COL_SUBJECT]),
+                        position=Position(self.TABLE_MAIN_INFO, row_idx, COL_SUBJECT),
+                        raw_text=cells[COL_SUBJECT]
+                    )
+                for i, case in enumerate(result.cases):
+                    col = COL_A + i
+                    if col < len(cells):
+                        case.avg_listing_price = LocatedValue(
+                            value=float(cells[col]),
+                            position=Position(self.TABLE_MAIN_INFO, row_idx, col),
+                            raw_text=cells[col]
+                        )
+
+    def _extract_detail_table(self, result: BiaozhunfangExtractionResult):
+        """提取详细因素表"""
+        if len(self.tables) <= self.TABLE_DETAIL:
+            return
+
+        table = self.tables[self.TABLE_DETAIL]
+
+        COL_SUBJECT = 1
+        COL_A = 2
+        COL_B = 3
+        COL_C = 4
+        COL_D = 5
+
+        ROW_STRUCTURE = 5
+        ROW_FLOOR = 6
+        ROW_ORIENTATION = 7
+        ROW_AGE = 8
+        ROW_EAST_WEST = 9
+        ROW_PHYSICAL_COMPOSITE = 10
+
+        for row_idx, row in enumerate(table.rows):
+            cells = [c.text.strip() for c in row.cells]
+
+            if len(cells) < 5:
+                continue
+
+            elif row_idx == ROW_STRUCTURE:
+                self._extract_factor_row(result, cells, row_idx, 'structure_factor', COL_SUBJECT, COL_A)
+
+            elif row_idx == ROW_FLOOR:
+                self._extract_factor_row(result, cells, row_idx, 'floor_factor', COL_SUBJECT, COL_A)
+
+            elif row_idx == ROW_ORIENTATION:
+                self._extract_factor_row(result, cells, row_idx, 'orientation_factor', COL_SUBJECT, COL_A)
+
+            elif row_idx == ROW_AGE:
+                self._extract_factor_row(result, cells, row_idx, 'age_factor', COL_SUBJECT, COL_A)
+
+            elif row_idx == ROW_EAST_WEST:
+                self._extract_factor_row(result, cells, row_idx, 'east_to_west', COL_SUBJECT, COL_A)
+
+            elif row_idx == ROW_PHYSICAL_COMPOSITE:
+                self._extract_factor_row(result, cells, row_idx, 'physical_composite', COL_SUBJECT, COL_A)
+
     def _extract_factor_row(self, result, cells, row_idx, factor_name, col_subject, col_a):
         """提取修正系数行"""
-        # 估价对象
         if len(cells) > col_subject:
             try:
                 value = float(cells[col_subject])
@@ -294,8 +483,7 @@ class BiaozhunfangExtractor:
                 ))
             except:
                 pass
-        
-        # 可比实例
+
         for i, case in enumerate(result.cases):
             col = col_a + i
             if col < len(cells):
@@ -308,69 +496,59 @@ class BiaozhunfangExtractor:
                     ))
                 except:
                     pass
-    
+
     def _extract_correction_table(self, result: BiaozhunfangExtractionResult):
-        """提取修正计算表（表格20）"""
+        """提取修正计算表"""
+        if len(self.tables) <= self.TABLE_CORRECTION:
+            return
+
         table = self.tables[self.TABLE_CORRECTION]
-        
-        # 列映射: A=1, B=2, C=3, D=4
+
         COL_A = 1
-        
-        # 行映射
-        ROW_PRICE = 1           # 交易单价
-        ROW_P1 = 2              # P1交易情况修正
-        ROW_P2 = 3              # P2交易日期修正
-        ROW_P3 = 4              # P3实体因素修正
-        ROW_P4 = 5              # P4区位状况修正
-        ROW_COMPOSITE = 6       # P1×P2×P3×P4结果
-        ROW_VS = 7              # Vs×P1×P2×P3×P4结果
-        ROW_DECORATION = 8      # 单位面积装修重置价
-        ROW_ATTACHMENT = 9      # 单位面积附属物单价
-        ROW_FINAL = 10          # 比准价格
-        
+        COL_B = 2
+        COL_C = 3
+        COL_D = 4
+
+        ROW_P1 = 2
+        ROW_P2 = 3
+        ROW_P3 = 4
+        ROW_P4 = 5
+        ROW_COMPOSITE = 6
+        ROW_VS_RESULT = 7
+        ROW_DECORATION = 8
+        ROW_ATTACHMENT = 9
+        ROW_FINAL = 10
+
         for row_idx, row in enumerate(table.rows):
             cells = [c.text.strip() for c in row.cells]
-            
-            if len(cells) < 4:
+
+            if len(cells) < 5:
                 continue
-            
-            if row_idx == ROW_PRICE:
-                for i, case in enumerate(result.cases):
-                    col = COL_A + i
-                    if col < len(cells):
-                        try:
-                            case.transaction_price = LocatedValue(
-                                value=float(cells[col]),
-                                position=Position(self.TABLE_CORRECTION, row_idx, col),
-                                raw_text=cells[col]
-                            )
-                        except:
-                            pass
-            
+
             elif row_idx == ROW_P1:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.p1_transaction = cells[col]
-            
+
             elif row_idx == ROW_P2:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.p2_date = cells[col]
-            
+
             elif row_idx == ROW_P3:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.p3_physical = cells[col]
-            
+
             elif row_idx == ROW_P4:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
                         case.p4_location = cells[col]
-            
+
             elif row_idx == ROW_COMPOSITE:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
@@ -383,8 +561,8 @@ class BiaozhunfangExtractor:
                             )
                         except:
                             pass
-            
-            elif row_idx == ROW_VS:
+
+            elif row_idx == ROW_VS_RESULT:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
@@ -396,7 +574,7 @@ class BiaozhunfangExtractor:
                             )
                         except:
                             pass
-            
+
             elif row_idx == ROW_DECORATION:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
@@ -409,7 +587,7 @@ class BiaozhunfangExtractor:
                             )
                         except:
                             pass
-            
+
             elif row_idx == ROW_ATTACHMENT:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
@@ -422,7 +600,7 @@ class BiaozhunfangExtractor:
                             )
                         except:
                             pass
-            
+
             elif row_idx == ROW_FINAL:
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
@@ -436,41 +614,79 @@ class BiaozhunfangExtractor:
                         except:
                             pass
 
+    def _extract_extended_info(self, result: BiaozhunfangExtractionResult):
+        """提取扩展信息（估价目的等）"""
+        # 估价目的
+        purpose_patterns = [
+            r'估价目的[：:是为]*(.{5,80}?)(?:。|$)',
+            r'本次估价目的是(.{5,80}?)(?:。|$)',
+        ]
+
+        for pattern in purpose_patterns:
+            match = re.search(pattern, self.full_text)
+            if match:
+                result.subject.appraisal_purpose = match.group(1).strip()
+                break
+
+    def _parse_district(self, result: BiaozhunfangExtractionResult):
+        """从地址解析区域信息"""
+        address = result.subject.address.value or ""
+
+        # 区/县
+        district_patterns = [
+            r'([\u4e00-\u9fa5]{2,4}区)',
+            r'([\u4e00-\u9fa5]{2,4}县)',
+            r'([\u4e00-\u9fa5]{2,4}市)',
+        ]
+
+        for pattern in district_patterns:
+            match = re.search(pattern, address)
+            if match:
+                result.subject.district = match.group(1)
+                break
+
+        # 街道/镇
+        street_patterns = [
+            r'([\u4e00-\u9fa5]{2,6}街道)',
+            r'([\u4e00-\u9fa5]{2,4}镇)',
+            r'([\u4e00-\u9fa5]{2,4}乡)',
+        ]
+
+        for pattern in street_patterns:
+            match = re.search(pattern, address)
+            if match:
+                result.subject.street = match.group(1)
+                break
+
+        # 同样处理可比实例
+        for case in result.cases:
+            case_addr = case.address.value or ""
+
+            for pattern in district_patterns:
+                match = re.search(pattern, case_addr)
+                if match:
+                    case.district = match.group(1)
+                    break
+
+            for pattern in street_patterns:
+                match = re.search(pattern, case_addr)
+                if match:
+                    case.street = match.group(1)
+                    break
 
 # ============================================================================
 # 测试
 # ============================================================================
 
 if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1:
+        doc_path = sys.argv[1]
+    else:
+        doc_path = "./data/docs/标准房报告-比较法.docx"
+
     extractor = BiaozhunfangExtractor()
-    result = extractor.extract("./data/docs/标准房报告-比较法.docx")
-    
-    print(f"\n{'='*70}")
-    print("【提取结果】")
-    print('='*70)
-    
-    print(f"\n估价对象（标准房）:")
-    print(f"  地址: {result.subject.address.value}")
-    print(f"  面积: {result.subject.building_area.value}㎡")
-    print(f"  结构修正: {result.subject.structure_factor.value}%")
-    print(f"  层次修正: {result.subject.floor_factor.value}%")
-    print(f"  朝向修正: {result.subject.orientation_factor.value}%")
-    print(f"  成新修正: {result.subject.age_factor.value}%")
-    print(f"  实体综合: {result.subject.physical_composite.value}%")
-    print(f"  区位代码: {result.subject.location_code}")
-    
-    print(f"\n可比实例:")
-    for case in result.cases:
-        print(f"\n  实例{case.case_id}:")
-        print(f"    地址: {case.address.value}")
-        print(f"    来源: {case.data_source}")
-        print(f"    面积: {case.building_area.value}㎡")
-        print(f"    交易单价: {case.transaction_price.value}元/㎡")
-        print(f"    P1交易情况: {case.p1_transaction}")
-        print(f"    P2交易日期: {case.p2_date}")
-        print(f"    P3实体因素: {case.p3_physical}")
-        print(f"    P4区位状况: {case.p4_location}")
-        print(f"    综合系数: {case.composite_result.value}")
-        print(f"    Vs结果: {case.vs_result.value}")
-        print(f"    装修重置价: {case.decoration_price.value}")
-        print(f"    比准价格: {case.final_price.value}元/㎡")
+    result = extractor.extract(doc_path)
+
+    print(result.cases[0])
