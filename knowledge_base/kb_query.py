@@ -7,7 +7,7 @@
 - 文件模式：通过 self.kb.index 访问内存索引
 - 数据库模式：直接查询 PostgreSQL
 """
-
+import math
 import os
 import sys
 import json
@@ -473,17 +473,34 @@ class KnowledgeBaseQuery:
         prices = []
         for item in cases:
             price = item.get('price', 0)
-            if price > 0:
+            if price and price > 0:
                 prices.append(price)
 
         if not prices:
-            return {'min': 0, 'max': 0, 'avg': 0, 'count': 0}
+            return {'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0, 'q1': 0, 'q3': 0}
+
+        prices_sorted = sorted(prices)
+        n = len(prices)
+        avg = sum(prices) / n
+
+        # 计算标准差
+        variance = sum((p - avg) ** 2 for p in prices) / n
+        std = math.sqrt(variance)
+
+        # 计算四分位数
+        q1_index = n // 4
+        q3_index = (3 * n) // 4
+        q1 = prices_sorted[q1_index] if n > 0 else 0
+        q3 = prices_sorted[q3_index] if n > 0 else 0
 
         return {
             'min': min(prices),
             'max': max(prices),
-            'avg': sum(prices) / len(prices),
-            'count': len(prices),
+            'avg': avg,
+            'std': std,
+            'count': n,
+            'q1': q1,
+            'q3': q3,
         }
 
     def get_area_range(self, report_type: str = None) -> Dict:
@@ -493,17 +510,34 @@ class KnowledgeBaseQuery:
         areas = []
         for item in cases:
             area = item.get('area', 0)
-            if area > 0:
+            if area and area > 0:
                 areas.append(area)
 
         if not areas:
-            return {'min': 0, 'max': 0, 'avg': 0, 'count': 0}
+            return {'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0, 'q1': 0, 'q3': 0}
+
+        areas_sorted = sorted(areas)
+        n = len(areas)
+        avg = sum(areas) / n
+
+        # 计算标准差
+        variance = sum((a - avg) ** 2 for a in areas) / n
+        std = math.sqrt(variance)
+
+        # 计算四分位数
+        q1_index = n // 4
+        q3_index = (3 * n) // 4
+        q1 = areas_sorted[q1_index] if n > 0 else 0
+        q3 = areas_sorted[q3_index] if n > 0 else 0
 
         return {
             'min': min(areas),
             'max': max(areas),
-            'avg': sum(areas) / len(areas),
-            'count': len(areas),
+            'avg': avg,
+            'std': std,
+            'count': n,
+            'q1': q1,
+            'q3': q3,
         }
 
     def get_correction_stats(self, report_type: str = None) -> Dict:
@@ -534,21 +568,27 @@ class KnowledgeBaseQuery:
                     val = case_data[field]
                     if isinstance(val, dict):
                         val = val.get('value')
-                    if val:
+                    if val and val > 0:
                         stats[key].append(val)
 
         # 计算统计值
         result = {}
         for key, values in stats.items():
             if values:
+                n = len(values)
+                avg = sum(values) / n
+                variance = sum((v - avg) ** 2 for v in values) / n
+                std = math.sqrt(variance)
+
                 result[key] = {
                     'min': min(values),
                     'max': max(values),
-                    'avg': sum(values) / len(values),
-                    'count': len(values),
+                    'avg': avg,
+                    'std': std,
+                    'count': n,
                 }
             else:
-                result[key] = {'min': 0, 'max': 0, 'avg': 0, 'count': 0}
+                result[key] = {'min': 0, 'max': 0, 'avg': 0, 'std': 0, 'count': 0}
 
         return result
 

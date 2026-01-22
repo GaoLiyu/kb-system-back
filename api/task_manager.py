@@ -235,62 +235,101 @@ def run_review_task(task_id: str, system, settings):
 
             validation_count = len(review_result.validation.issues) if review_result.validation else 0
             llm_count = len(review_result.llm_issues) if review_result.llm_issues else 0
+            comparison_count = len([c for c in (review_result.comparisons or []) if c.is_abnormal])
 
             # 计算风险
             error_count = sum(1 for i in review_result.validation.issues if i.level in ['error', '错误']) if review_result.validation else 0
             llm_major = sum(1 for i in review_result.llm_issues if i.severity in ['major', 'critical']) if review_result.llm_issues else 0
 
-            if error_count > 0 or llm_count >= 3:
+            if error_count > 0 or llm_count >= 3 or comparison_count >= 3:
                 overall_risk = "高风险"
-            elif llm_major > 0 or validation_count > 2:
+            elif llm_major > 0 or validation_count > 2 or comparison_count >= 1:
                 overall_risk = "中风险"
             else:
                 overall_risk = "低风险"
 
+            # 构建结果（包括 comparisons）
+            comparisons_list = []
+            for comp in (review_result.comparisons or []):
+                comparisons_list.append({
+                    "type": comp.type,
+                    "current_value": comp.current_value,
+                    "kb_min": comp.kb_min,
+                    "kb_max": comp.kb_max,
+                    "kb_avg": comp.kb_avg,
+                    "is_abnormal": comp.is_abnormal,
+                    "description": comp.description,
+                })
+
             result = {
-                "extraction": {
-                    "subject": {
-                        "address": review_result.extraction.subject.address.value if review_result.extraction else None,
-                    },
-                    "case_count": len(review_result.extraction.cases) if review_result.extraction else 0,
-                },
                 "validation_issues": [
                     {"level": i.level, "category": i.category, "description": i.description}
                     for i in (review_result.validation.issues if review_result.validation else [])
                 ],
+                "formula_checks": [
+                    {"case_id": f.case_id, "expected": f.expected, "actual": f.actual, "is_valid": f.is_valid}
+                    for f in (review_result.validation.formula_checks if review_result.validation else [])
+                ],
                 "llm_issues": [
-                    {"type": i.type, "severity": i.severity, "description": i.description, "suggestion": i.suggestion}
+                    {
+                        "type": i.type,
+                        "severity": i.severity,
+                        "description": i.description,
+                        "span": i.span,
+                        "suggestion": i.suggestion,
+                        "paragraph_index": getattr(i, 'paragraph_index', None),
+                    }
                     for i in (review_result.llm_issues or [])
                 ],
+                "comparisons": comparisons_list,
+                "similar_cases": review_result.similar_cases or [],
+                "recommendations": review_result.recommendations or [],
             }
 
         else:
             # 完整审查（带原文）
-            from extractors import (
-                extract_document_content,
-                content_to_dict,
-                get_filtered_paragraphs_for_review,
-                mark_issues
-            )
-            from utils import detect_report_type
-            from reviewer.llm_reviewer import LLMReviewer
+            from extractors import extract_report, content_to_dict, mark_issues
+            from extractors.content_extractor import extract_document_content
+            from validators import validate_report
+            from utils import convert_doc_to_docx, detect_report_type
 
-            # 提取原文
+            # 文档原文提取
+            if file_path.lower().endswith('.doc'):
+                file_path = convert_doc_to_docx(file_path)
+
             doc_content = extract_document_content(file_path)
-            paragraphs = get_filtered_paragraphs_for_review(doc_content, max_count=100)
 
-            # 规则校验
-            validation_result = system.validate(file_path, verbose=False)
+            # 过滤无意义段落
+            doc_content.contents = [
+                item for item in doc_content.contents
+                if item.type != 'paragraph' or (
+                        item.text and
+                        len(item.text.strip()) > 5 and
+                        not item.text.strip().startswith('—')
+                )
+            ]
+            # 重建索引
+            for idx, item in enumerate(doc_content.contents):
+                item.index = idx
 
-            # LLM 全文审查（使用上下文感知的全文审查，避免误报）
+            # 报告提取
+            extraction_result = extract_report(file_path)
             report_type = detect_report_type(file_path)
-            llm_issues = []
 
-            if settings.enable_llm and paragraphs:
-                reviewer = LLMReviewer()
-                if reviewer.is_available():
-                    # 使用全文审查而非分段审查
-                    llm_result = reviewer.review_full_document(paragraphs, report_type)
+            # 基础校验
+            validation_result = validate_report(extraction_result)
+
+            # LLM审查段落
+            llm_issues = []
+            if system.reviewer.enable_llm and system.reviewer.llm_reviewer:
+                if system.reviewer.llm_reviewer.is_available():
+                    paragraphs = [
+                        {'index': item.index, 'text': item.text}
+                        for item in doc_content.contents
+                        if item.type == 'paragraph' and item.text
+                    ]
+
+                    llm_result = system.reviewer.llm_reviewer.review_full_document(paragraphs, report_type)
                     llm_issues = [
                         {
                             "type": issue.type,
@@ -304,23 +343,44 @@ def run_review_task(task_id: str, system, settings):
                         if issue.paragraph_index is not None
                     ]
 
+            # 知识库对比（调用 reviewer 的方法）
+            comparisons = system.reviewer._compare_with_kb(extraction_result, report_type)
+            similar_cases = system.reviewer._find_similar(extraction_result, report_type)
+
             # 标记问题段落
             mark_issues(doc_content, llm_issues)
 
             validation_count = len(validation_result.issues) if validation_result else 0
             llm_count = len(llm_issues)
+            comparison_count = len([c for c in comparisons if c.is_abnormal])
 
             # 计算风险
             error_count = sum(
-                1 for i in validation_result.issues if i.level in ['error', '错误']) if validation_result else 0
+                1 for i in validation_result.issues
+                if i.level in ['error', '错误']
+            ) if validation_result else 0
+
             llm_major = sum(1 for i in llm_issues if i.get('severity') in ['major', 'critical'])
 
-            if error_count > 0 or llm_major >= 3:
+            if error_count > 0 or llm_major >= 3 or comparison_count >= 3:
                 overall_risk = "高风险"
-            elif llm_major > 0 or validation_count > 2:
+            elif llm_major > 0 or validation_count > 2 or comparison_count >= 1:
                 overall_risk = "中风险"
             else:
                 overall_risk = "低风险"
+
+            # 构建结果（包含 comparisons）
+            comparisons_list = []
+            for comp in comparisons:
+                comparisons_list.append({
+                    "item": comp.item,
+                    "current_value": comp.current_value,
+                    "kb_min": comp.kb_min,
+                    "kb_max": comp.kb_max,
+                    "kb_avg": comp.kb_avg,
+                    "is_abnormal": comp.is_abnormal,
+                    "description": comp.description,
+                })
 
             result = {
                 "document_content": content_to_dict(doc_content),
@@ -333,6 +393,10 @@ def run_review_task(task_id: str, system, settings):
                     for f in (validation_result.formula_checks if validation_result else [])
                 ],
                 "llm_issues": llm_issues,
+                # === 新增 ===
+                "comparisons": comparisons_list,
+                "similar_cases": similar_cases,
+                "recommendations": [],
             }
 
         # 更新为完成
@@ -340,7 +404,7 @@ def run_review_task(task_id: str, system, settings):
             task_id,
             "completed",
             overall_risk=overall_risk,
-            issue_count=validation_count + llm_count,
+            issue_count=validation_count + llm_count + comparison_count,
             validation_count=validation_count,
             llm_count=llm_count,
             result=result

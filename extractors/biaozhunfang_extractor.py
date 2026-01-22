@@ -124,6 +124,8 @@ class BiaozhunfangExtractionResult:
     # 最终结果（比准价格的平均值或加权值）
     final_price: LocatedValue = field(default_factory=LocatedValue)
 
+    type: str = ""  # 类型
+
 
 class BiaozhunfangExtractor:
     """标准房报告提取器（增强版）"""
@@ -146,7 +148,7 @@ class BiaozhunfangExtractor:
         self.tables = self.doc.tables
         self.full_text = "\n".join([p.text for p in self.doc.paragraphs])
 
-        result = BiaozhunfangExtractionResult(source_file=os.path.basename(doc_path))
+        result = BiaozhunfangExtractionResult(source_file=os.path.basename(doc_path), type="biaozhunfang")
 
         print(f"\n📊 提取标准房报告: {os.path.basename(doc_path)}")
         print(f"   表格数量: {len(self.tables)}")

@@ -146,53 +146,136 @@ class ReportReviewer:
         correction_stats = self.query.get_correction_stats(report_type)
         
         # 如果知识库没有数据，跳过对比
-        if price_stats['count'] == 0:
+        MIN_SAMPLE_COUNT = 5 # 最小样本数量
+        if price_stats.get('count', 0) < MIN_SAMPLE_COUNT:
             return comparisons
         
-        # 对比每个案例
+        # ===1. 对比每个可比案例的价格 ===
         for case in result.cases:
-            # 价格对比
+            case_id = getattr(case, 'case_id', None)
+
+            # 获取对比
             price = None
-            if hasattr(case, 'transaction_price') and case.transaction_price.value:
+            if hasattr(case, 'transaction_price') and case.transaction_price and case.transaction_price.value:
                 price = case.transaction_price.value
-            elif hasattr(case, 'rental_price') and case.rental_price.value:
+                price_type = '交易价格'
+            elif hasattr(case, 'rental_price') and case.rental_price and case.rental_price.value:
                 price = case.rental_price.value
-            elif hasattr(case, 'final_price') and case.final_price.value:
+                price_type = '租金'
+            elif hasattr(case, 'final_price') and case.final_price and case.final_price.value:
                 price = case.final_price.value
+                price_type = '比准价格'
             
-            if price and price_stats['count'] > 0:
-                is_abnormal = price < price_stats['min'] * 0.5 or price > price_stats['max'] * 1.5
+            if price and price_stats['count'] >= MIN_SAMPLE_COUNT:
+                avg = price_stats['avg']
+                std = price_stats.get('std', 0)
+
+                # 使用 均值±2倍标准差 作为合理范围
+                # 如果没有标准差，退化为 [avg*0.7, avg*1.3]
+                if std > 0:
+                    lower_bound = avg - 2 * std
+                    upper_bound = avg + 2 * std
+                else:
+                    lower_bound = avg * 0.7
+                    upper_bound = avg * 1.3
+
+                # 确保下届不为负
+                lower_bound = max(lower_bound, 0)
+
+                is_abnormal = price < lower_bound or price > upper_bound
+
+                # 计算偏离程度
+                if std > 0:
+                    z_score = abs(price - avg) / std
+                    deviation_desc = f"偏离{z_score:.1f}个标准差"
+                else:
+                    pct = abs(price - avg) / avg * 100 if avg > 0 else 0
+                    deviation_desc = f"偏离均值{pct:.1f}%"
+
                 comparisons.append(ComparisonResult(
-                    item=f"实例{case.case_id}价格",
+                    item=f"实例{case_id}{price_type}",
                     current_value=price,
                     kb_min=price_stats['min'],
                     kb_max=price_stats['max'],
-                    kb_avg=price_stats['avg'],
+                    kb_avg=avg,
                     is_abnormal=is_abnormal,
-                    description="价格明显偏离知识库范围" if is_abnormal else "",
+                    description=f"价格{price:.0f}元/㎡{deviation_desc}，知识库合理范围[{lower_bound:.0f}, {upper_bound:.0f}]" if is_abnormal else "",
                 ))
             
-            # 修正系数对比
-            for name, field in [
-                ('区位修正', 'location_correction'),
-                ('实物修正', 'physical_correction'),
-            ]:
+            # ===2. 修正系数对比 ===
+            correction_fields = [
+                ('区位修正', 'location_correction', 'location'),
+                ('实物修正', 'physical_correction', 'physical'),
+                ('交易修正', 'transaction_correction', 'transaction'),
+                ('市场修正', 'market_correction', 'market'),
+                ('权益修正', 'rights_correction', 'rights'),
+            ]
+            for name, field, stats_key in correction_fields:
                 if hasattr(case, field):
-                    val = getattr(case, field).value
-                    key = field.replace('_correction', '')
-                    stats = correction_stats.get(key, {})
-                    
-                    if val and stats.get('count', 0) > 0:
-                        is_abnormal = val < stats['min'] * 0.8 or val > stats['max'] * 1.2
-                        comparisons.append(ComparisonResult(
-                            item=f"实例{case.case_id}{name}",
-                            current_value=val,
-                            kb_min=stats['min'],
-                            kb_max=stats['max'],
-                            kb_avg=stats['avg'],
-                            is_abnormal=is_abnormal,
-                            description=f"{name}系数偏离知识库范围" if is_abnormal else "",
-                        ))
+                    val_obj = getattr(case, field)
+                    val = val_obj.value if hasattr(val_obj, 'value') else val_obj
+
+                    stats = correction_stats.get(stats_key, {})
+
+                    if val and stats.get('count', 0) >= MIN_SAMPLE_COUNT:
+                        avg = stats['avg']
+                        std = stats.get('std', 0)
+
+                        # 修正系数的合理范围更窄，均值 ± 1.5倍标准差
+                        if std > 0:
+                            lower_bound = avg - 1.5 * std
+                            upper_bound = avg + 1.5 * std
+                        else:
+                            lower_bound = avg * 0.85
+                            upper_bound = avg * 1.15
+
+                        # 确保在 [0.5, 2.0] 范围内
+                        lower_bound = max(lower_bound, 0.5)
+                        upper_bound = min(upper_bound, 2.0)
+
+                        is_abnormal = val < lower_bound or val > upper_bound
+
+                        if is_abnormal:
+                            comparisons.append(ComparisonResult(
+                                item=f"实例{case_id}{name}",
+                                current_value=val,
+                                kb_min=stats['min'],
+                                kb_max=stats['max'],
+                                kb_avg=avg,
+                                is_abnormal=is_abnormal,
+                                description=f"{name}系数{val:.3f}超出合理范围[{lower_bound:.3f}, {upper_bound:.3f}]",
+                            ))
+
+        # ===3. 对比估价对象面积（可选） ===
+        if area_stats.get('count', 0) >= MIN_SAMPLE_COUNT:
+            subject_area = result.subject.building_area.value if result.subject.building_area else None
+
+            if subject_area:
+                avg = area_stats['avg']
+                std = area_stats.get('std', 0)
+
+                # 面积范围较宽：均值 ±3倍标准差
+                if std > 0:
+                    lower_bound = avg - 3 * std
+                    upper_bound = avg + 3 * std
+                else:
+                    lower_bound = avg * 0.3
+                    upper_bound = avg * 3.0
+
+                lower_bound = max(lower_bound, 10) # 最小10
+
+                is_abnormal = subject_area < lower_bound or subject_area > upper_bound
+
+                if is_abnormal:
+                    comparisons.append(ComparisonResult(
+                        item=f"估价对象面积",
+                        current_value=subject_area,
+                        kb_min=area_stats['min'],
+                        kb_max=area_stats['max'],
+                        kb_avg=avg,
+                        is_abnormal=is_abnormal,
+                        description=f"面积{subject_area:.2f}㎡超出知识库常见范围[{lower_bound:.0f}, {upper_bound:.0f}]",
+                    ))
         
         return comparisons
     

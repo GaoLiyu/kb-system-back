@@ -147,6 +147,8 @@ class ShezhiExtractionResult:
     final_total_price: LocatedValue = field(default_factory=LocatedValue)
     floor_factor: float = 1.0
 
+    type: str = ""  # 类型
+
 
 class ShezhiExtractor:
     """涉执报告提取器"""
@@ -178,7 +180,7 @@ class ShezhiExtractor:
         self.tables = self.doc.tables
         self.full_text = "\n".join([p.text for p in self.doc.paragraphs])
 
-        result = ShezhiExtractionResult(source_file=os.path.basename(doc_path))
+        result = ShezhiExtractionResult(source_file=os.path.basename(doc_path), type='shezhi')
 
         print(f"\n📊 提取涉执报告: {os.path.basename(doc_path)}")
         print(f"   表格数量: {len(self.tables)}")

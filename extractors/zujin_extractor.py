@@ -63,8 +63,8 @@ class Case:
     district: str = ""           # 区域
     street: str = ""             # 街道/镇
     build_year: int = 0          # 建成年份
-    total_floor: int = 0         # 总楼层（Case 这里你没改，我不擅自改）
-    current_floor: int = 0       # 所在楼层
+    total_floor: str = ""         # 总楼层
+    current_floor: str = ""       # 所在楼层
     structure: str = ""          # 结构
     orientation: str = ""        # 朝向
     decoration: str = ""         # 装修
@@ -157,6 +157,8 @@ class ZujinExtractionResult:
     # ✅ 你代码里用到了 result.floor_factor，所以这里补上
     floor_factor: float = 1.0
 
+    type: str = "" # 类型
+
 
 class ZujinExtractor:
     """租金报告提取器"""
@@ -189,7 +191,7 @@ class ZujinExtractor:
         self.tables = self.doc.tables
         self.full_text = "\n".join([p.text for p in self.doc.paragraphs])
 
-        result = ZujinExtractionResult(source_file=os.path.basename(doc_path))
+        result = ZujinExtractionResult(source_file=os.path.basename(doc_path), type='zujin')
 
         print(f"\n📊 提取租金报告: {os.path.basename(doc_path)}")
         print(f"   表格数量: {len(self.tables)}")
@@ -242,22 +244,24 @@ class ZujinExtractor:
         return re.sub(r"[^\d]", "", s or "")
 
     def _set_subject_floor(self, subject: Subject, cur: str, total: str):
-        cur_n = self._norm_num_str(cur)
-        total_n = self._norm_num_str(total)
-        if cur_n:
-            subject.current_floor = cur_n
-        if total_n:
-            subject.total_floor = total_n
+        # cur_n = self._norm_num_str(cur)
+        # total_n = self._norm_num_str(total)
+        if cur:
+            subject.current_floor = cur
+        if total:
+            subject.total_floor = total
 
     def _parse_floor_from_floor_str(self, subject: Subject):
         """从 subject.floor 解析 current/total（字符串）"""
         if not subject.floor:
             return
         text = subject.floor.strip()
-        m = re.search(r"(\d+)(?:-(\d+))?\s*/\s*(\d+)", text)
-        if m:
-            cur = m.group(2) or m.group(1)
-            total = m.group(3)
+        # m = re.search(r"(\d+)(?:-(\d+))?\s*/\s*(\d+)", text)
+        if text:
+            # cur = m.group(2) or m.group(1)
+            # total = m.group(3)
+            cur = text.split("/")[0]
+            total = text.split("/")[1]
             self._set_subject_floor(subject, cur, total)
 
     # ----------------- 表格提取 -----------------
@@ -972,4 +976,4 @@ class ZujinExtractor:
 if __name__ == "__main__":
     extractor = ZujinExtractor()
     result = extractor.extract("./data/docs/租金报告-比较法.docx")
-    print(result.cases[0])
+    print(result)
