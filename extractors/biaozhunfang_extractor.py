@@ -202,7 +202,7 @@ class BiaozhunfangExtractor:
                 continue
 
             # 检测详细因素表
-            if '内容' in header and '标准房' in header and '可比实例' in header:
+            if '估价对象' in header and '可比实例A' in header and '可比实例B' in header and '可比实例C' in header and '可比实例D' in header:
                 self.TABLE_DETAIL = i
                 continue
 
@@ -442,42 +442,37 @@ class BiaozhunfangExtractor:
         COL_C = 4
         COL_D = 5
 
-        ROW_STRUCTURE = 5
-        ROW_FLOOR = 6
-        ROW_ORIENTATION = 7
-        ROW_AGE = 8
-        ROW_EAST_WEST = 9
-        ROW_PHYSICAL_COMPOSITE = 10
-
         for row_idx, row in enumerate(table.rows):
             cells = [c.text.strip() for c in row.cells]
+
+            label = (cells[0]).replace(' ', '').replace('\u3000', '')
 
             if len(cells) < 5:
                 continue
 
-            elif row_idx == ROW_STRUCTURE:
+            elif '结构修正系数' in label:
                 self._extract_factor_row(result, cells, row_idx, 'structure_factor', COL_SUBJECT, COL_A)
 
-            elif row_idx == ROW_FLOOR:
+            elif '层次修正系数' in label:
                 self._extract_factor_row(result, cells, row_idx, 'floor_factor', COL_SUBJECT, COL_A)
 
-            elif row_idx == ROW_ORIENTATION:
+            elif '朝向修正系数' in label:
                 self._extract_factor_row(result, cells, row_idx, 'orientation_factor', COL_SUBJECT, COL_A)
 
-            elif row_idx == ROW_AGE:
+            elif '成新修正系数' in label:
                 self._extract_factor_row(result, cells, row_idx, 'age_factor', COL_SUBJECT, COL_A)
 
-            elif row_idx == ROW_EAST_WEST:
+            elif '东西至修正系数' in label:
                 self._extract_factor_row(result, cells, row_idx, 'east_to_west', COL_SUBJECT, COL_A)
 
-            elif row_idx == ROW_PHYSICAL_COMPOSITE:
+            elif '实体状况系数综合' in label:
                 self._extract_factor_row(result, cells, row_idx, 'physical_composite', COL_SUBJECT, COL_A)
 
     def _extract_factor_row(self, result, cells, row_idx, factor_name, col_subject, col_a):
         """提取修正系数行"""
         if len(cells) > col_subject:
             try:
-                value = float(cells[col_subject])
+                value = float(cells[col_subject]) / 100 if float(cells[col_subject]) > 10 else float(cells[col_subject])
                 setattr(result.subject, factor_name, LocatedValue(
                     value=value,
                     position=Position(self.TABLE_DETAIL, row_idx, col_subject),
@@ -686,7 +681,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         doc_path = sys.argv[1]
     else:
-        doc_path = "./data/docs/标准房报告-比较法.docx"
+        doc_path = "./uploads/kb_032-丰乐尚都---小高层.docx"
 
     extractor = BiaozhunfangExtractor()
     result = extractor.extract(doc_path)

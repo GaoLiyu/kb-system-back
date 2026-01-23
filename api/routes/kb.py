@@ -234,8 +234,10 @@ async def upload_report(
             f.write(content)
 
         system = get_system()
-        doc_id = system.add_report(upload_path, verbose=False)
+        doc_id = system.add_report(upload_path, verbose=True)
         detected_type = report_type or detect_report_type(upload_path)
+
+        print(detected_type)
 
         return {
             "success": True,

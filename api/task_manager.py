@@ -313,8 +313,8 @@ def run_review_task(task_id: str, system, settings):
                 item.index = idx
 
             # 报告提取
-            extraction_result = extract_report(file_path)
             report_type = detect_report_type(file_path)
+            extraction_result = extract_report(file_path, report_type)
 
             # 基础校验
             validation_result = validate_report(extraction_result)

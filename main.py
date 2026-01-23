@@ -73,7 +73,7 @@ class RealEstateKBSystem:
         report_type = detect_report_type(doc_path)
 
         # 提取
-        result = extract_report(doc_path)
+        result = extract_report(doc_path, report_type)
 
         # 存入知识库
         doc_id = self.kb.add_report(result, report_type)
@@ -162,7 +162,11 @@ class RealEstateKBSystem:
         result = extract_report(doc_path)
 
         # 校验
-        validation = validate_report(result)
+        validation = validate_report(result, {
+            'correction_range': (0.85, 1.15),
+            'formula_tolerance': 10,
+            'min_case_count': 4 if result.typpe == 'biaozhunfang' else 3,
+        })
 
         if verbose:
             print(f"   风险: {validation.risk_level}")

@@ -88,7 +88,7 @@ class ReportReviewer:
         report_type = detect_report_type(doc_path)
         
         # 提取数据
-        result = extract_report(doc_path)
+        result = extract_report(doc_path, report_type)
         
         # 1. 基础校验
         validation = validate_report(result)
@@ -248,7 +248,7 @@ class ReportReviewer:
 
         # ===3. 对比估价对象面积（可选） ===
         if area_stats.get('count', 0) >= MIN_SAMPLE_COUNT:
-            subject_area = result.subject.building_area.value if result.subject.building_area else None
+            subject_area = float(result.subject.building_area.value) if result.subject.building_area else None
 
             if subject_area:
                 avg = area_stats['avg']

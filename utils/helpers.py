@@ -89,7 +89,7 @@ def detect_report_type(filename: str) -> str:
         return 'shezhi'
 
     else:
-        return 'shezhi'  # 默认
+        return 'biaozhunfang'  # 默认
 
 
 def safe_float(value, default: float = 0.0) -> float:

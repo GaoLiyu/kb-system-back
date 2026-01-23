@@ -420,32 +420,32 @@ class KnowledgeBaseQuery:
                 score += 0.15
 
         # 3. 面积相似度（权重0.20）
-        if area and area > 0:
-            item_area = item.get('area', 0)
+        if area:
+            item_area, area = float(item.get('area', 0)), float(area)
             if item_area > 0:
                 ratio = min(area, item_area) / max(area, item_area)
                 if ratio > 0.5:
                     score += ratio * 0.20
 
         # 4. 价格相似度（权重0.15）
-        if price and price > 0:
-            item_price = item.get('price', 0)
+        if price:
+            item_price, price = float(item.get('price', 0)), float(price)
             if item_price > 0:
                 ratio = min(price, item_price) / max(price, item_price)
                 if ratio > 0.5:
                     score += ratio * 0.15
 
         # 5. 楼层相似度（权重0.10）
-        if floor and floor > 0:
-            item_floor = item.get('current_floor', 0)
+        if floor:
+            item_floor, floor = float(item.get('current_floor', 0)), float(floor)
             if item_floor > 0:
                 diff = abs(floor - item_floor)
                 if diff <= 3:
                     score += (1 - diff / 10) * 0.10
 
         # 6. 建成年份相似度（权重0.10）
-        if build_year and build_year > 0:
-            item_year = item.get('build_year', 0)
+        if build_year:
+            item_year, build_year = float(item.get('build_year', 0)), float(build_year)
             if item_year > 0:
                 diff = abs(build_year - item_year)
                 if diff <= 10:

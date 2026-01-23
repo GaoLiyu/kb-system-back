@@ -286,7 +286,7 @@ class ReportValidator:
             if price:
                 # 住宅价格范围检查（根据报告类型）
                 if report_type == 'zujin':
-                    if price < 50 and price > 2000:
+                    if price < 50 or price > 2000:
                         issues.append(Issue(
                             level='warning',
                             category='reasonability',
@@ -316,6 +316,38 @@ class ReportValidator:
             else:
                 report_type = 'shezhi'
 
+        def parse_ratio_to_float(val, *, precision=6):
+            if val is None:
+                return None
+
+            if isinstance(val, (int, float)):
+                return float(val)
+
+            s = str(val).strip()
+
+            if not s:
+                return None
+
+            # 不修正
+            if s == "不修正":
+                return 1.0
+
+            if "/" in s:
+                try:
+                    a, b = s.split("/", 1)
+                    a = float(a.strip())
+                    b = float(b.strip())
+                    if b == 0:
+                        return None
+                    return round(a / b, precision)
+                except ValueError:
+                    return None
+
+            try:
+                return float(s)
+            except ValueError:
+                return None
+
         for case in result.cases:
             case_id = getattr(case, 'case_id', '?')
 
@@ -333,31 +365,37 @@ class ReportValidator:
                 if hasattr(case, 'p1_transaction'):
                     p1_obj = getattr(case, 'p1_transaction')
                     p1 = p1_obj.value if hasattr(p1_obj, 'value') else (p1_obj or 1.0)
+                    p1 = parse_ratio_to_float(p1)
 
                 p2 = 1.0
                 if hasattr(case, 'p2_date'):
                     p2_obj = getattr(case, 'p2_date')
                     p2 = p2_obj.value if hasattr(p2_obj, 'value') else (p2_obj or 1.0)
+                    p2 = parse_ratio_to_float(p2)
 
                 p3 = 1.0
                 if hasattr(case, 'p3_physical') or hasattr(case, 'physical_composite'):
                     p3_obj = getattr(case, 'p3_physical') if hasattr(case, 'p3_physical') else getattr(case, 'physical_composite')
                     p3 = p3_obj.value if hasattr(p3_obj, 'value') else (p3_obj or 1.0)
+                    p3 = parse_ratio_to_float(p3)
 
                 p4 = 1.0
                 if hasattr(case, 'p4_location'):
                     p4_obj = getattr(case, 'p4_location')
                     p4 = p4_obj.value if hasattr(p4_obj, 'value') else (p4_obj or 1.0)
+                    p4 = parse_ratio_to_float(p4)
 
                 va = 0
                 if hasattr(case, 'attachment_price'):
                     va_obj = getattr(case, 'attachment_price')
                     va = va_obj.value if hasattr(va_obj, 'value') else (va_obj or 0)
+                    va = parse_ratio_to_float(va)
 
                 vb = 0
                 if hasattr(case, 'decoration_price'):
                     vb_obj = getattr(case, 'decoration_price')
                     vb = vb_obj.value if hasattr(vb_obj, 'value') else (vb_obj or 0)
+                    vb = parse_ratio_to_float(vb)
 
                 # 获取实际比准价格
                 final_price = 0
@@ -411,6 +449,8 @@ class ReportValidator:
                 if hasattr(case, 'east_west_factor') and case.east_west_factor and case.east_west_factor.value:
                     ewf_obj = getattr(case, 'east_west_factor')
                     ewf = (ewf_obj.value if hasattr(ewf_obj, 'value') else (ewf_obj or 1.0)) / 100
+
+                print(sf, ff, of, af, ewf, p3)
 
                 expected_p3 = sf * ff * of * af * ewf
                 diff_p3 = abs(expected_p3 - p3)

@@ -21,7 +21,7 @@ from .content_extractor import (
 )
 
 
-def extract_report(doc_path: str):
+def extract_report(doc_path: str, report_type: str = None):
     """
     根据文件名自动选择提取器并提取数据
 
@@ -34,25 +34,25 @@ def extract_report(doc_path: str):
     filename = os.path.basename(doc_path).lower()
 
     # 税务标准房
-    if '标准房' in filename or 'biaozhunfang' in filename or '电梯多层' in filename or '税务' in filename:
+    if report_type == 'biaozhunfang' or '标准房' in filename or 'biaozhunfang' in filename or '电梯多层' in filename or '税务' in filename:
         return BiaozhunfangExtractor().extract(doc_path)
 
     # 租金评估
-    elif '租金' in filename or 'zujin' in filename:
+    elif report_type == 'zujin' or  '租金' in filename or 'zujin' in filename:
         return ZujinExtractor().extract(doc_path)
 
     # 市场价值-现状价值（批量评估）
-    elif '现值' in filename or '现状价值' in filename or '市场价值' in filename or 'xianzhi' in filename:
+    elif report_type == 'xianzhi' or  '现值' in filename or '现状价值' in filename or '市场价值' in filename or 'xianzhi' in filename:
         return XianzhibExtractor().extract(doc_path)
 
     # 司法评估（人民法院）- 使用ShezhiExtractor + 自动检测
-    elif '司法' in filename or '人民法院' in filename or 'sifa' in filename:
+    elif  report_type == 'shezhi' or '司法' in filename or '人民法院' in filename or 'sifa' in filename:
         extractor = ShezhiExtractor()
         extractor.auto_detect = True  # 启用自动检测表格索引
         return extractor.extract(doc_path)
 
     # 涉执报告
-    elif '涉执' in filename or 'shezhi' in filename:
+    elif report_type == 'shezhi' or '涉执' in filename or 'shezhi' in filename:
         return ShezhiExtractor().extract(doc_path)
 
     else:
