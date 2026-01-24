@@ -189,29 +189,123 @@ class BiaozhunfangExtractor:
         return result
 
     def _auto_detect_table_indices(self):
-        """自动检测关键表格的索引位置"""
+        """自动检测关键表格的索引位置（打分制，更稳）"""
+
+        def norm(s: str) -> str:
+            if not s:
+                return ""
+            return (
+                s.replace("\u3000", " ")
+                .replace("\n", " ")
+                .replace("\t", " ")
+                .strip()
+            )
+
+        def table_block(table, max_rows=6, max_cols=10) -> str:
+            parts = []
+            rN = min(len(table.rows), max_rows)
+            for r in range(rN):
+                row = table.rows[r]
+                cN = min(len(row.cells), max_cols)
+                for c in range(cN):
+                    parts.append(norm(row.cells[c].text))
+            # 拼成一个大块，便于 contains 判断
+            return " ".join([p for p in parts if p])
+
+        def contains_all(text: str, keys) -> bool:
+            return all(k in text for k in keys)
+
+        def count_hits(text: str, keys) -> int:
+            return sum(1 for k in keys if k in text)
+
+        # 候选分数
+        best = {
+            "result": (-1, self.TABLE_RESULT_SUMMARY),
+            "main": (-1, self.TABLE_MAIN_INFO),
+            "detail": (-1, self.TABLE_DETAIL),
+            "corr": (-1, self.TABLE_CORRECTION),
+        }
+
         for i, table in enumerate(self.tables):
             if len(table.rows) == 0:
                 continue
 
-            header = ' '.join([c.text.strip() for c in table.rows[0].cells[:7]])
+            rows = len(table.rows)
+            cols = len(table.columns) if table.columns else 0
 
-            # 检测结果汇总表
-            if '评估' in header or '单价' in header:
-                self.TABLE_RESULT_SUMMARY = i
-                continue
+            block = table_block(table, max_rows=8, max_cols=12)
 
-            # 检测详细因素表
-            if '估价对象' in header and '可比实例A' in header and '可比实例B' in header and '可比实例C' in header and '可比实例D' in header:
-                self.TABLE_DETAIL = i
-                continue
+            # 统一做一次“无空格版”，应对“P1 交易情况 修正”这种被拆开的情况
+            block_compact = block.replace(" ", "")
 
-            # 检测修正计算表
-            if len(table.rows) > 2:
-                table_text = ' '.join([c.text.strip() for row in table.rows[:5] for c in row.cells[:5]])
-                if ('交易情况' in table_text and '修正' in table_text) or \
-                        ('P1' in table_text and 'P2' in table_text):
-                    self.TABLE_CORRECTION = i
+            # ---------- 1) 结果汇总表 ----------
+            # 特征：短小（行数少），且同时出现“总价/单价”
+            score_result = 0
+            if rows <= 6 and cols >= 3:
+                if ("总价" in block_compact) and ("单价" in block_compact):
+                    score_result += 10
+                score_result += count_hits(block_compact, ["评估结果", "元/㎡", "万元"])
+            if score_result > best["result"][0]:
+                best["result"] = (score_result, i)
+
+            # ---------- 2) 修正计算表 ----------
+            # 特征：P1/P2/P3/P4 + 比准价格 等关键词非常强
+            score_corr = 0
+            corr_keys_strong = ["P1交易情况修正", "P2交易日期修正", "P3", "P4", "比准价格"]
+            corr_keys_weak = ["Vs", "装修重置价", "附属物", "P1×P2×P3×P4"]
+            if rows >= 8 and cols >= 5:
+                score_corr += 2 * count_hits(block_compact, corr_keys_strong)
+                score_corr += 1 * count_hits(block_compact, corr_keys_weak)
+            if score_corr > best["corr"][0]:
+                best["corr"] = (score_corr, i)
+
+            # ---------- 3) A-D 对比类表（主表/详细表都会中）----------
+            has_ad_header = (
+                    ("估价对象" in block_compact)
+                    and ("可比实例A" in block_compact)
+                    and ("可比实例B" in block_compact)
+                    and ("可比实例C" in block_compact)
+                    and ("可比实例D" in block_compact)
+            )
+
+            if has_ad_header:
+                # ---------- 3.1) 详细因素表 ----------
+                # 特征：大量“修正系数/区位因素/综合得分”等字段
+                score_detail = 0
+                detail_strong = ["结构修正系数", "层次修正系数", "朝向修正系数", "成新修正系数", "实体状况系数综合"]
+                detail_weak = ["区位因素", "区位状况综合", "修正结果", "装修成新率", "装修档次"]
+                score_detail += 2 * count_hits(block_compact, detail_strong)
+                score_detail += 1 * count_hits(block_compact, detail_weak)
+                # 一般详细表列数较稳定（你这份是6列），但不要写死，只做加分
+                if cols <= 7:
+                    score_detail += 2
+                if score_detail > best["detail"][0]:
+                    best["detail"] = (score_detail, i)
+
+                # ---------- 3.2) 主要信息表（主表） ----------
+                # 特征：案件基础信息字段：案例来源、证号类型/编码、地址、建筑面积、交易时间等
+                score_main = 0
+                main_strong = ["案例来源", "证号类型", "证号编码", "地址", "建筑面积", "交易时间"]
+                main_weak = ["结构", "层次", "朝向", "建成时间", "装修", "房屋性质", "区位（代码）"]
+                score_main += 2 * count_hits(block_compact, main_strong)
+                score_main += 1 * count_hits(block_compact, main_weak)
+                # 主表一般更大（你这份34行、9列），给个形态加分
+                if rows >= 25:
+                    score_main += 2
+                if cols >= 8:
+                    score_main += 2
+                if score_main > best["main"][0]:
+                    best["main"] = (score_main, i)
+
+        # 落盘（如果某类没找到，保留默认值）
+        if best["result"][0] >= 6:
+            self.TABLE_RESULT_SUMMARY = best["result"][1]
+        if best["corr"][0] >= 6:
+            self.TABLE_CORRECTION = best["corr"][1]
+        if best["detail"][0] >= 6:
+            self.TABLE_DETAIL = best["detail"][1]
+        if best["main"][0] >= 6:
+            self.TABLE_MAIN_INFO = best["main"][1]
 
     def _extract_result_summary(self, result: BiaozhunfangExtractionResult):
         """提取结果汇总表（单价、总价）"""

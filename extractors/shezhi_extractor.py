@@ -19,6 +19,8 @@ from typing import Dict, List, Optional
 from docx import Document
 from dataclasses import dataclass, field
 
+from .table_utils import extract_property_rights_generic
+
 
 @dataclass
 class Position:
@@ -231,49 +233,202 @@ class ShezhiExtractor:
 
     def _auto_detect_table_indices(self):
         """
-        自动检测关键表格的索引位置
-        用于处理司法评估等表格结构有偏移的报告
+        自动检测关键表格索引（涉执报告）
+        采用打分制：对每个表抽取前几行/列做文本块，然后按关键词规则打分，分别选最高分的表。
         """
+
+        def norm(s: str) -> str:
+            if not s:
+                return ""
+            return (
+                s.replace("\u3000", " ")
+                .replace("\n", " ")
+                .replace("\t", " ")
+                .strip()
+            )
+
+        def table_block(table, max_rows=8, max_cols=12) -> str:
+            parts = []
+            rN = min(len(table.rows), max_rows)
+            for r in range(rN):
+                row = table.rows[r]
+                cN = min(len(row.cells), max_cols)
+                for c in range(cN):
+                    parts.append(norm(row.cells[c].text))
+            return " ".join([p for p in parts if p])
+
+        def compact(s: str) -> str:
+            return s.replace(" ", "")
+
+        def count_hits(text: str, keys) -> int:
+            return sum(1 for k in keys if k in text)
+
+        def has_any(text: str, keys) -> bool:
+            return any(k in text for k in keys)
+
+        # best_scores: name -> (score, index)
+        best = {
+            "result": (-1, self.TABLE_RESULT_SUMMARY),
+            "rights": (-1, self.TABLE_PROPERTY_RIGHTS),
+            "basic": (-1, self.TABLE_BASIC_INFO),
+            "desc": (-1, self.TABLE_FACTOR_DESC),
+            "level": (-1, self.TABLE_FACTOR_LEVEL),
+            "index": (-1, self.TABLE_FACTOR_INDEX),
+            "ratio": (-1, self.TABLE_FACTOR_RATIO),
+            "corr": (-1, self.TABLE_CORRECTION),
+        }
+
+        # 因素表通用的 A/B/C 头
+        def has_abc_header(t: str) -> bool:
+            t2 = compact(t)
+            return ("估价对象" in t2) and ("可比实例A" in t2) and ("可比实例B" in t2) and ("可比实例C" in t2)
+
         for i, table in enumerate(self.tables):
             if len(table.rows) == 0:
                 continue
 
-            # 获取表头
-            header = ' '.join([c.text.strip() for c in table.rows[0].cells[:6]])
+            rows = len(table.rows)
+            cols = len(table.columns) if table.columns else 0
 
-            # 检测基础信息表（包含"项目"、"估价对象"、"可比实例"）
-            if '项目' in header and '估价对象' in header and '可比实例' in header:
-                self.TABLE_BASIC_INFO = i
-                self.TABLE_FACTOR_DESC = i + 1
-                self.TABLE_FACTOR_LEVEL = i + 2
-                self.TABLE_FACTOR_INDEX = i + 3
-                self.TABLE_FACTOR_RATIO = i + 4
-                self.TABLE_CORRECTION = i + 5
-                break
+            block = table_block(table, max_rows=10, max_cols=12)
+            t = compact(block)
 
-            # 检测因素描述表（"估价对象及可比"）
-            if '估价对象及可比' in header and '实' in header:
-                # 检查下一行是否有"交易情况"
-                if len(table.rows) > 1:
-                    row1 = ' '.join([c.text.strip() for c in table.rows[1].cells[:3]])
-                    if '交易情况' in row1:
-                        self.TABLE_FACTOR_DESC = i
-                        self.TABLE_BASIC_INFO = i - 1
-                        self.TABLE_FACTOR_LEVEL = i + 1
-                        self.TABLE_FACTOR_INDEX = i + 2
-                        self.TABLE_FACTOR_RATIO = i + 3
-                        self.TABLE_CORRECTION = i + 4
-                        break
+            # ---------------- 1) 结果汇总表 ----------------
+            # 特征：同时出现“单价”“总价”，且常见“建筑面积”“元/平方米”等
+            score_result = 0
+            if ("单价" in t and "总价" in t) or ("元/平方米" in t and "总价" in t):
+                score_result += 10
+            score_result += count_hits(t, ["建筑面积", "平方米", "估价对象坐落", "万元", "大写"])
+            # 通常汇总表较短，但不写死，只加分
+            if rows <= 6:
+                score_result += 2
+            if score_result > best["result"][0]:
+                best["result"] = (score_result, i)
 
-        # 检测权属表
-        for i, table in enumerate(self.tables):
-            if len(table.rows) < 2:
-                continue
-            header = ' '.join([c.text.strip() for c in table.rows[0].cells[:5]])
-            if '不动产权属' in header or '权属登记' in header:
-                self.TABLE_PROPERTY_RIGHTS = i
-                break
-    
+            # ---------------- 2) 权属表 ----------------
+            # 特征：不动产权证/不动产权利人/结构/规划用途/土地面积/终止日期 等
+            score_rights = 0
+            rights_strong = ["不动产权证", "不动产权利人", "不动产权属", "权属登记"]
+            rights_weak = ["坐落", "结构", "规划用途", "使用权类型", "地类", "土地面积", "终止日期", "建筑面积"]
+            score_rights += 3 * count_hits(t, rights_strong)
+            score_rights += 1 * count_hits(t, rights_weak)
+            if score_rights > best["rights"][0]:
+                best["rights"] = (score_rights, i)
+
+            # ---------------- 3) 基础信息表 ----------------
+            # 特征：项目/估价对象/可比实例(至少A/B/C) + 行里有“地址/用途/来源/交易日期/建筑面积”等
+            score_basic = 0
+            if ("项目" in t and "估价对象" in t and "可比实例" in t):
+                score_basic += 8
+            # 允许模板是“项目 + 估价对象 + 可比实例A/B/C”
+            if ("可比实例A" in t and "可比实例B" in t and "可比实例C" in t):
+                score_basic += 4
+            score_basic += count_hits(t, ["地址", "坐落", "用途", "来源", "交易日期", "建筑面积", "成交", "价格类型",
+                                          "财产范围"])
+            # 基础信息表通常行数较多
+            if rows >= 10:
+                score_basic += 2
+            if score_basic > best["basic"][0]:
+                best["basic"] = (score_basic, i)
+
+            # ---------------- 4) 因素类表（描述/等级/指数/比率）----------------
+            # 四张表共同特点：ABC 列头 + 内容出现 “区位/实物/权益” 等分类项
+            if has_abc_header(block) or has_any(t, ["区位状况", "实物状况", "权益状况"]):
+                # 4.1 描述表：出现“描述性”的词更密集（如“状况/条件/质量/配套/装修”等）
+                score_desc = 0
+                if has_any(t, ["区位状况", "实物状况", "权益状况"]):
+                    score_desc += 2
+                score_desc += count_hits(t, ["交通条件", "配套设施", "环境质量", "物业管理", "装饰装修", "建筑结构",
+                                             "新旧程度"])
+                # 描述表一般不会大量出现“指数/比率”
+                score_desc -= 2 * count_hits(t, ["指数", "比率"])
+                if score_desc > best["desc"][0]:
+                    best["desc"] = (score_desc, i)
+
+                # 4.2 等级表：关键词“等级/优/良/中/差/较优/一般”等
+                score_level = 0
+                score_level += 3 * count_hits(t, ["等级"])
+                score_level += count_hits(t, ["优", "良", "中", "差", "较优", "一般"])
+                # 等级表一般不出现“指数/比率/100”密集
+                score_level -= count_hits(t, ["指数", "比率", "100"])
+                if score_level > best["level"][0]:
+                    best["level"] = (score_level, i)
+
+                # 4.3 指数表：关键词“指数/100/95/105”等数字密集
+                score_index = 0
+                score_index += 4 * count_hits(t, ["指数"])
+                # 常见指数基准 100（不写死，只加分）
+                if "100" in t:
+                    score_index += 2
+                # 指数表一般不出现“比率/系数(%)”密集
+                score_index -= 2 * count_hits(t, ["比率"])
+                if score_index > best["index"][0]:
+                    best["index"] = (score_index, i)
+
+                # 4.4 比率表：关键词“比率/系数/%/修正系数/比准”等
+                score_ratio = 0
+                score_ratio += 4 * count_hits(t, ["比率"])
+                score_ratio += 2 * count_hits(t, ["系数", "%", "修正"])
+                if score_ratio > best["ratio"][0]:
+                    best["ratio"] = (score_ratio, i)
+
+            # ---------------- 5) 修正计算表 ----------------
+            # 特征：修正系数/修正结果/比准价格/P1.. 等（涉执模板里常见交易情况/日期/区位/实物/权益修正）
+            score_corr = 0
+            corr_strong = ["修正", "比准", "修正结果", "比准价格"]
+            corr_weak = ["交易情况", "交易日期", "区位", "实物", "权益", "调整", "系数"]
+            score_corr += 2 * count_hits(t, corr_strong)
+            score_corr += 1 * count_hits(t, corr_weak)
+            # 修正表一般更大些
+            if rows >= 8 and cols >= 5:
+                score_corr += 2
+            if score_corr > best["corr"][0]:
+                best["corr"] = (score_corr, i)
+
+        # --------- 落盘：设置表索引（设一个阈值，避免误判）---------
+        # 阈值可以按你后续样本再调，这里先给一个保守值
+        if best["result"][0] >= 8:
+            self.TABLE_RESULT_SUMMARY = best["result"][1]
+        if best["rights"][0] >= 6:
+            self.TABLE_PROPERTY_RIGHTS = best["rights"][1]
+        if best["basic"][0] >= 8:
+            self.TABLE_BASIC_INFO = best["basic"][1]
+        if best["corr"][0] >= 6:
+            self.TABLE_CORRECTION = best["corr"][1]
+
+        # 因素四张表：如果都识别到了，用识别结果；否则退化为“从基础信息表之后按顺序猜”
+        found_desc = best["desc"][0] >= 3
+        found_level = best["level"][0] >= 3
+        found_index = best["index"][0] >= 3
+        found_ratio = best["ratio"][0] >= 3
+
+        if found_desc:
+            self.TABLE_FACTOR_DESC = best["desc"][1]
+        if found_level:
+            self.TABLE_FACTOR_LEVEL = best["level"][1]
+        if found_index:
+            self.TABLE_FACTOR_INDEX = best["index"][1]
+        if found_ratio:
+            self.TABLE_FACTOR_RATIO = best["ratio"][1]
+
+        # 兜底策略：当因素表没全识别出来时，用“基础信息表 + 偏移”兜底，但不强依赖
+        if not (found_desc and found_level and found_index and found_ratio):
+            base = self.TABLE_BASIC_INFO
+            # 只有当 base 合理时才兜底
+            if 0 <= base < len(self.tables):
+                # 兜底偏移（与你原来的逻辑一致，但仅作为 fallback）
+                if not found_desc:
+                    self.TABLE_FACTOR_DESC = min(base + 1, len(self.tables) - 1)
+                if not found_level:
+                    self.TABLE_FACTOR_LEVEL = min(base + 2, len(self.tables) - 1)
+                if not found_index:
+                    self.TABLE_FACTOR_INDEX = min(base + 3, len(self.tables) - 1)
+                if not found_ratio:
+                    self.TABLE_FACTOR_RATIO = min(base + 4, len(self.tables) - 1)
+                # 修正表也兜底一下（前面已识别则不覆盖）
+                if best["corr"][0] < 6:
+                    self.TABLE_CORRECTION = min(base + 5, len(self.tables) - 1)
+
     def _get_cell_value(self, table_idx: int, row_idx: int, col_idx: int) -> LocatedValue:
         """获取单元格值（带位置）"""
         try:
@@ -334,53 +489,68 @@ class ShezhiExtractor:
                         raw_text=total_text
                     )
                     result.final_total_price = result.subject.total_price
-    
+
     def _extract_property_rights(self, result: ShezhiExtractionResult):
-        """提取权属表"""
+        """提取权属表（使用 table_utils：表头定位 + 列映射，不改变你的结果结构）"""
+        if len(self.tables) <= self.TABLE_PROPERTY_RIGHTS:
+            return
+
         table = self.tables[self.TABLE_PROPERTY_RIGHTS]
 
-        row = table.rows[2]
-        row2 = table.rows[4]
+        # 这个 setter 只负责把 utils 识别到的字段写回你现有 Subject 字段
+        def subject_setter(key: str, value):
+            # 注意：这里完全不改你的字段名/类型，只是赋值方式不同
+            if key == "cert_no":
+                if value and not result.subject.cert_no:
+                    result.subject.cert_no = str(value).strip()
 
-        cell = [c.text.strip() for c in row.cells]
-        cell2 = [c.text.strip() for c in row2.cells]
+            elif key == "owner":
+                if value and not result.subject.owner:
+                    result.subject.owner = str(value).strip()
 
-        if len(cell) >= 7 and len(cell2) >= 7:
-            # 不动产权证证号
-            if cell[0] and not result.subject.cert_no:
-                result.subject.cert_no = cell[0].strip()
+            elif key == "address":
+                # shezhi 的 Subject.address 是 LocatedValue
+                if value and not result.subject.address.value:
+                    result.subject.address.value = str(value).strip()
 
-            # 不动产权人
-            if  cell[1] and not result.subject.owner:
-                result.subject.owner = cell[1].strip()
+            elif key == "structure":
+                if value and not result.subject.structure:
+                    result.subject.structure = str(value).strip()
 
-            # 结构
-            if cell[3] and not result.subject.structure:
-                result.subject.structure = cell[3].strip()
+            elif key == "floor":
+                if value and not result.subject.floor:
+                    result.subject.floor = str(value).strip()
 
-            # 所在层数/总层数
-            if cell[4] and not result.subject.floor:
-                result.subject.floor = cell[4].strip()
+            elif key == "plan_usage":
+                if value and not result.subject.plan_usage:
+                    result.subject.plan_usage = str(value).strip()
 
-            # 规划用途
-            if cell[6] and not result.subject.plan_usage:
-                result.subject.plan_usage = cell[6].strip()
+            # ---- 土地块（shezhi Subject 里是 land_use_type / land_type / land_area / end_date）----
+            elif key == "land_use_type":
+                if value and not result.subject.land_use_type:
+                    result.subject.land_use_type = str(value).strip()
 
-            # 使用权类型
-            if cell2[3] and not result.subject.land_use_type:
-                result.subject.land_use_type = cell2[3].strip()
+            elif key == "land_type":
+                if value and not result.subject.land_type:
+                    result.subject.land_type = str(value).strip()
 
-            # 地类（用途）
-            if cell2[4] and not result.subject.land_type:
-                result.subject.land_type = cell2[4].strip()
+            elif key == "land_area":
+                # utils 解析出来一般是 float
+                if value is not None and (not result.subject.land_area):
+                    try:
+                        result.subject.land_area = float(value)
+                    except:
+                        pass
 
-            # 土地面积
-            if cell2[5] and not result.subject.land_area:
-                result.subject.land_area = float(cell2[5])
+            elif key == "end_date":
+                if value and not result.subject.end_date:
+                    result.subject.end_date = str(value).strip()
 
-            # 终止日期
-            if cell2[6] and not result.subject.end_date:
-                result.subject.end_date = cell2[6].strip()
+            # 有些权属表里会有土地证号/土地权利人等字段，但你 shezhi 的 Subject 没定义这些字段
+            # 所以这里故意忽略，不会改变你的数据结构
+
+        # detect_land=True：让 utils 试着解析土地块（如果表里有）
+        extract_property_rights_generic(table, subject_setter=subject_setter, detect_land=True)
 
     def _extract_basic_info(self, result: ShezhiExtractionResult):
         """提取基础信息表"""

@@ -18,6 +18,8 @@ from typing import Dict, List
 from docx import Document
 from dataclasses import dataclass, field
 
+from .table_utils import extract_property_rights_generic
+
 
 @dataclass
 class Position:
@@ -63,7 +65,7 @@ class Case:
     district: str = ""           # 区域
     street: str = ""             # 街道/镇
     build_year: int = 0          # 建成年份
-    total_floor: str = ""         # 总楼层
+    total_floor: int = 0         # 总楼层
     current_floor: str = ""       # 所在楼层
     structure: str = ""          # 结构
     orientation: str = ""        # 朝向
@@ -180,10 +182,11 @@ class ZujinExtractor:
     RIGHTS_FACTORS = ['规划条件', '土地使用期限', '土地剩余使用年限', '担保物权设立', '租赁占用状况', '拖欠税费状况',
                       '登记状况', '他项权利', '限制权利', '其他因素']
 
-    def __init__(self):
+    def __init__(self, auto_detect: bool = True):
         self.doc = None
         self.tables = []
         self.full_text = ""
+        self.auto_detect = auto_detect
 
     def extract(self, doc_path: str) -> ZujinExtractionResult:
         """提取租金报告"""
@@ -195,6 +198,15 @@ class ZujinExtractor:
 
         print(f"\n📊 提取租金报告: {os.path.basename(doc_path)}")
         print(f"   表格数量: {len(self.tables)}")
+
+        # 自动检测表格索引
+        if self.auto_detect:
+            self._auto_detect_table_indices()
+            print(
+                f"   ✓ 自动检测表格索引: 汇总={self.TABLE_RESULT_SUMMARY}, 权属={self.TABLE_PROPERTY_RIGHTS}, "
+                f"基础={self.TABLE_BASIC_INFO}, 描述={self.TABLE_FACTOR_DESC}, 等级={self.TABLE_FACTOR_LEVEL}, "
+                f"指数={self.TABLE_FACTOR_INDEX}, 修正={self.TABLE_CORRECTION}"
+            )
 
         # 1. 提取结果汇总
         self._extract_result_summary(result)
@@ -242,6 +254,164 @@ class ZujinExtractor:
     @staticmethod
     def _norm_num_str(s: str) -> str:
         return re.sub(r"[^\d]", "", s or "")
+
+    def _auto_detect_table_indices(self):
+        """自动检测租金报告关键表格索引（打分制，抗位置偏移）"""
+
+        def norm(s: str) -> str:
+            if not s:
+                return ""
+            return (
+                s.replace("\u3000", " ")
+                .replace("\n", " ")
+                .replace("\t", " ")
+                .strip()
+            )
+
+        def table_block(table, max_rows=10, max_cols=12) -> str:
+            parts = []
+            rN = min(len(table.rows), max_rows)
+            for r in range(rN):
+                row = table.rows[r]
+                cN = min(len(row.cells), max_cols)
+                for c in range(cN):
+                    parts.append(norm(row.cells[c].text))
+            return " ".join([p for p in parts if p])
+
+        def compact(s: str) -> str:
+            return s.replace(" ", "")
+
+        def count_hits(text: str, keys) -> int:
+            return sum(1 for k in keys if k in text)
+
+        def has_all(text: str, keys) -> bool:
+            return all(k in text for k in keys)
+
+        best = {
+            "summary": (-1, self.TABLE_RESULT_SUMMARY),
+            "rights": (-1, self.TABLE_PROPERTY_RIGHTS),
+            "basic": (-1, self.TABLE_BASIC_INFO),
+            "desc": (-1, self.TABLE_FACTOR_DESC),
+            "level": (-1, self.TABLE_FACTOR_LEVEL),
+            "index": (-1, self.TABLE_FACTOR_INDEX),
+            "corr": (-1, self.TABLE_CORRECTION),
+        }
+
+        for i, table in enumerate(self.tables):
+            if len(table.rows) == 0:
+                continue
+
+            rows = len(table.rows)
+            cols = len(table.columns) if table.columns else 0
+
+            block = table_block(table, max_rows=12, max_cols=12)
+            t = compact(block)
+
+            # ---------------- 1) 结果汇总表 ----------------
+            # 强特征：坐落 + 评估面积 + 评估单价 + 评估总价 + 元/㎡·年（或 万元/年）
+            score_summary = 0
+            if has_all(t, ["评估面积", "评估单价", "评估总价"]):
+                score_summary += 10
+            score_summary += count_hits(t, ["坐落", "元/㎡·年", "万元/年", "（㎡）"])
+            if rows <= 6:
+                score_summary += 2
+            if score_summary > best["summary"][0]:
+                best["summary"] = (score_summary, i)
+
+            # ---------------- 2) 权属表 ----------------
+            # 典型字段：房屋所有权证证号/房屋所有权人/土地使用证证号/土地使用权人/终止日期 等
+            score_rights = 0
+            score_rights += 3 * count_hits(t, ["房屋所有权证证号", "房屋所有权人"])
+            score_rights += 3 * count_hits(t, ["土地使用证证号", "土地使用权人"])
+            score_rights += count_hits(t, ["规划用途", "建筑面积", "坐落", "使用权类型", "地类", "土地使用权面积",
+                                           "终止日期"])
+            if score_rights > best["rights"][0]:
+                best["rights"] = (score_rights, i)
+
+            # ---------------- 3) 基础信息表 ----------------
+            # 租金模板通常包含：项目/估价对象/可比实例 或 案例A/B/C 结构
+            score_basic = 0
+            if ("项目" in t and "估价对象" in t and ("可比实例" in t or "案例A" in t)):
+                score_basic += 10
+            score_basic += count_hits(t, ["地址", "位置", "来源", "用途", "财产范围", "付款方式", "融资条件", "税负",
+                                          "计价单位", "价格类型", "租赁价格", "交易日期"])
+            if rows >= 10 and cols >= 5:
+                score_basic += 2
+            if score_basic > best["basic"][0]:
+                best["basic"] = (score_basic, i)
+
+            # ---------------- 4) 因素表：描述/等级/指数 ----------------
+            # 共同特征：区位状况/实物状况/权益状况 + A/B/C列头（可比实例A/B/C 或 案例A/B/C）
+            has_abc = (("可比实例A" in t and "可比实例B" in t and "可比实例C" in t) or
+                       ("案例A" in t and "案例B" in t and "案例C" in t))
+            has_factors = ("区位状况" in t or "实物状况" in t or "权益状况" in t)
+
+            if has_abc and has_factors:
+                # 4.1 描述表：更多“交通/配套/环境/装修/结构/新旧”等描述词
+                score_desc = 0
+                score_desc += count_hits(t, ["交通条件", "配套设施", "环境质量", "物业管理", "驻车条件", "装饰装修",
+                                             "建筑结构", "新旧程度", "空间布局"])
+                # 描述表通常不强调“指数/100”
+                score_desc -= 2 * count_hits(t, ["指数", "100"])
+                if score_desc > best["desc"][0]:
+                    best["desc"] = (score_desc, i)
+
+                # 4.2 等级表：等级/优良中差 等
+                score_level = 0
+                score_level += 3 * count_hits(t, ["等级"])
+                score_level += count_hits(t, ["优", "良", "中", "差", "较优", "一般"])
+                score_level -= count_hits(t, ["指数", "100"])
+                if score_level > best["level"][0]:
+                    best["level"] = (score_level, i)
+
+                # 4.3 指数表：指数/100 特别多
+                score_index = 0
+                score_index += 4 * count_hits(t, ["指数"])
+                if "100" in t:
+                    score_index += 2
+                if score_index > best["index"][0]:
+                    best["index"] = (score_index, i)
+
+            # ---------------- 5) 修正计算表 ----------------
+            # 强特征：比较因素修正表 + 交易价格/交易情况修正系数/市场状况调整系数/调整后单价（元/㎡·年）
+            score_corr = 0
+            if "比较因素修正表" in t:
+                score_corr += 10
+            score_corr += 2 * count_hits(t, ["交易价格", "交易情况修正系数", "市场状况调整系数", "区位状况调整系数",
+                                             "实物状况调整系数", "权益状况调整系数"])
+            score_corr += count_hits(t, ["调整后单价", "元/㎡·年"])
+            if rows >= 6 and cols >= 4:
+                score_corr += 2
+            if score_corr > best["corr"][0]:
+                best["corr"] = (score_corr, i)
+
+        # --------- 落盘（阈值防误判）---------
+        if best["summary"][0] >= 10:
+            self.TABLE_RESULT_SUMMARY = best["summary"][1]
+        if best["rights"][0] >= 6:
+            self.TABLE_PROPERTY_RIGHTS = best["rights"][1]
+        if best["basic"][0] >= 10:
+            self.TABLE_BASIC_INFO = best["basic"][1]
+        if best["desc"][0] >= 2:
+            self.TABLE_FACTOR_DESC = best["desc"][1]
+        if best["level"][0] >= 2:
+            self.TABLE_FACTOR_LEVEL = best["level"][1]
+        if best["index"][0] >= 2:
+            self.TABLE_FACTOR_INDEX = best["index"][1]
+        if best["corr"][0] >= 10:
+            self.TABLE_CORRECTION = best["corr"][1]
+
+        # 兜底：如果因素表没识别全，按“基础信息表后续顺序”兜一下（但不强依赖）
+        base = self.TABLE_BASIC_INFO
+        if 0 <= base < len(self.tables):
+            if best["desc"][0] < 2:
+                self.TABLE_FACTOR_DESC = min(base + 1, len(self.tables) - 1)
+            if best["level"][0] < 2:
+                self.TABLE_FACTOR_LEVEL = min(base + 2, len(self.tables) - 1)
+            if best["index"][0] < 2:
+                self.TABLE_FACTOR_INDEX = min(base + 3, len(self.tables) - 1)
+            if best["corr"][0] < 10:
+                self.TABLE_CORRECTION = min(base + 4, len(self.tables) - 1)
 
     def _set_subject_floor(self, subject: Subject, cur: str, total: str):
         # cur_n = self._norm_num_str(cur)
@@ -334,96 +504,79 @@ class ZujinExtractor:
                 pass
 
     def _extract_property_rights(self, result: ZujinExtractionResult):
-        """提取权属表（表1）——按你现有租金模板：0证号 1权利人 2坐落 3结构 4楼层 5面积 6用途"""
+        """提取权属表（使用 table_utils：表头定位 + 列映射，不改变你的结果结构）"""
         if len(self.tables) <= self.TABLE_PROPERTY_RIGHTS:
             return
+
         table = self.tables[self.TABLE_PROPERTY_RIGHTS]
-        if len(table.rows) < 3:
-            return
 
-        row = table.rows[2]
-        row2 = table.rows[5]
-        cells = [c.text.strip().replace('\n', ' ') for c in row.cells]
-        cells2 = [c.text.strip().replace('\n', ' ') for c in row2.cells]
-        if len(cells) < 7 or len(cells2) < 7:
-            return
+        def subject_setter(key: str, value):
+            # ---- 房屋块 ----
+            if key == "cert_no":
+                if value and not result.subject.cert_no:
+                    result.subject.cert_no = str(value).strip()
 
-        # 证号/权利人
-        if cells[0] and not result.subject.cert_no:
-            result.subject.cert_no = cells[0]
-        if cells[1] and not result.subject.owner:
-            result.subject.owner = cells[1]
+            elif key == "owner":
+                if value and not result.subject.owner:
+                    result.subject.owner = str(value).strip()
 
-        # 坐落
-        addr = cells[2]
-        if addr and not result.subject.address.value:
-            result.subject.address = LocatedValue(
-                value=addr,
-                position=Position(self.TABLE_PROPERTY_RIGHTS, 2, 2),
-                raw_text=addr,
-            )
+            elif key == "address":
+                # zujin 的 Subject.address 也是 LocatedValue
+                if value and not result.subject.address.value:
+                    result.subject.address.value = str(value).strip()
 
-        # 结构
-        struct = cells[3]
-        if struct and not result.subject.structure:
-            result.subject.structure = struct
+            elif key == "structure":
+                if value and not result.subject.structure:
+                    result.subject.structure = str(value).strip()
 
-        # 楼层原始串 + 解析
-        floor_text = cells[4]
-        if floor_text and not result.subject.floor:
-            result.subject.floor = floor_text
-            self._parse_floor_from_floor_str(result.subject)
+            elif key == "floor":
+                if value and not result.subject.floor:
+                    result.subject.floor = str(value).strip()
+                    # 你原来会解析 current/total，这里也保持原行为
+                    self._parse_floor_from_floor_str(result.subject)
 
-        # 面积：可能多段数字（多个分部），尝试求和
-        area_text = cells[5]
-        if area_text and not result.subject.building_area.value:
-            nums = re.findall(r'\d+(?:\.\d+)?', area_text)
-            if nums:
-                try:
-                    area_sum = sum(float(n) for n in nums)
-                    if not result.subject.building_area.value:
-                        result.subject.building_area = LocatedValue(
-                            value=area_sum,
-                            position=Position(self.TABLE_PROPERTY_RIGHTS, 2, 5),
-                            raw_text=area_text,
-                        )
-                except:
-                    pass
+            elif key == "plan_usage":
+                if value and not result.subject.plan_usage:
+                    result.subject.plan_usage = str(value).strip()
 
-        # 规划用途
-        plan_usage = cells[6].strip()
-        if plan_usage and not result.subject.plan_usage:
-            result.subject.plan_usage = plan_usage
+            elif key == "building_area":
+                # 你原来写的是 result.subject.building_area (LocatedValue)
+                if value is not None and not result.subject.building_area.value:
+                    result.subject.building_area.value = float(value)
 
+            # ---- 土地块（zujin Subject 里字段更全）----
+            elif key == "land_no":
+                if value and not result.subject.land_no:
+                    result.subject.land_no = str(value).strip()
 
-        # 土地使用证证号
-        if cells2[0].strip() and not result.subject.land_no:
-            result.subject.land_no = cells2[0].strip()
+            elif key == "land_owner":
+                if value and not result.subject.land_owner:
+                    result.subject.land_owner = str(value).strip()
 
-        # 土地使用权人
-        if cells2[1].strip() and not result.subject.land_owner:
-            result.subject.land_owner = cells2[1].strip()
+            elif key == "land_address":
+                if value and not result.subject.land_address:
+                    result.subject.land_address = str(value).strip()
 
-        # 土地坐落
-        if cells2[2].strip() and not result.subject.land_address:
-            result.subject.land_address = cells2[2].strip()
+            elif key == "land_use_type":
+                if value and not result.subject.land_use_type:
+                    result.subject.land_use_type = str(value).strip()
 
-        # 使用权类型
-        if cells2[3].strip() and not result.subject.land_use_type:
-            result.subject.land_use_type = cells2[3].strip()
+            elif key == "land_type":
+                if value and not result.subject.land_type:
+                    result.subject.land_type = str(value).strip()
 
-        # 地类（用途）
-        if cells2[4].strip() and not result.subject.land_type:
-            result.subject.land_type = cells2[4].strip()
+            elif key == "land_area":
+                if value is not None and not result.subject.land_area:
+                    try:
+                        result.subject.land_area = float(value)
+                    except:
+                        pass
 
-        # 土地使用权面积
-        if cells2[5].strip() and not result.subject.land_area:
-            result.subject.land_area = cells2[5].strip()
+            elif key == "end_date":
+                if value and not result.subject.end_date:
+                    result.subject.end_date = str(value).strip()
 
-        # 终止日期
-        if cells2[6].strip() and not result.subject.end_date:
-            result.subject.end_date = cells2[6].strip()
-
+        extract_property_rights_generic(table, subject_setter=subject_setter, detect_land=True)
 
     def _extract_basic_info(self, result: ZujinExtractionResult):
         """提取基础信息表"""
