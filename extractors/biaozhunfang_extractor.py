@@ -65,7 +65,7 @@ class Case:
     street: str = ""  # 街道/镇
     build_year: int = 0  # 建成年份
     total_floor: int = 0  # 总楼层
-    current_floor: int = 0  # 所在楼层
+    current_floor: str = ""  # 所在楼层
     orientation: str = ""  # 朝向（文本描述）
     decoration: str = ""  # 装修状况
     structure: str = ""  # 建筑结构
@@ -100,7 +100,7 @@ class Subject:
     street: str = ""  # 街道/镇
     build_year: int = 0  # 建成年份
     total_floor: int = 0  # 总楼层
-    current_floor: int = 0  # 所在楼层
+    current_floor: str = ""  # 所在楼层
     orientation: str = ""  # 朝向（文本描述）
     decoration: str = ""  # 装修状况
     structure: str = ""  # 建筑结构
@@ -419,13 +419,21 @@ class BiaozhunfangExtractor:
 
             elif '层次' in label:
                 if COL_SUBJECT < len(cells):
-                    result.subject.current_floor = cells[COL_SUBJECT].split('/')[0]
-                    result.subject.total_floor = cells[COL_SUBJECT].split('/')[1]
+                    if cells[COL_SUBJECT] == '/':
+                        result.subject.current_floor = '0'
+                        result.subject.total_floor = '0'
+                    else:
+                        result.subject.current_floor = cells[COL_SUBJECT].split('/')[0]
+                        result.subject.total_floor = cells[COL_SUBJECT].split('/')[1]
                 for i, case in enumerate(result.cases):
                     col = COL_A + i
                     if col < len(cells):
-                        case.current_floor = cells[col].split('/')[0]
-                        case.total_floor = cells[col].split('/')[1]
+                        if cells[COL_SUBJECT] == '/':
+                            case.current_floor = '0'
+                            case.total_floor = '0'
+                        else:
+                            case.current_floor = cells[col].split('/')[0]
+                            case.total_floor = cells[col].split('/')[1]
 
             elif '朝向' in label:
                 if COL_SUBJECT < len(cells):

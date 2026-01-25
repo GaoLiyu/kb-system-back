@@ -7,6 +7,10 @@ from .helpers import (
     detect_report_type,
     safe_float,
     safe_int,
+    normalize_factor,
+    parse_ratio_to_float,
+    parse_floor_string,
+    format_p_value_display
 )
 from .llm_client import (
     LLMClient,
@@ -22,4 +26,8 @@ __all__ = [
     'safe_int',
     'LLMClient',
     'get_llm_client',
+    'normalize_factor',
+    'parse_ratio_to_float',
+    'parse_floor_string',
+    'format_p_value_display'
 ]

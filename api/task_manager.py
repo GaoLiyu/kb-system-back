@@ -389,7 +389,7 @@ def run_review_task(task_id: str, system, settings):
                     for i in (validation_result.issues if validation_result else [])
                 ],
                 "formula_checks": [
-                    {"case_id": f.case_id, "expected": f.expected, "actual": f.actual, "is_valid": f.is_valid}
+                    {"case_id": f.case_id, "expected": f.expected, "actual": f.actual, "is_valid": f.is_valid, "formula_name": f.formula_name, "inputs": f.inputs}
                     for f in (validation_result.formula_checks if validation_result else [])
                 ],
                 "llm_issues": llm_issues,

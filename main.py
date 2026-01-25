@@ -165,7 +165,7 @@ class RealEstateKBSystem:
         validation = validate_report(result, {
             'correction_range': (0.85, 1.15),
             'formula_tolerance': 10,
-            'min_case_count': 4 if result.typpe == 'biaozhunfang' else 3,
+            'min_case_count': 4 if result.type == 'biaozhunfang' else 3,
         })
 
         if verbose:

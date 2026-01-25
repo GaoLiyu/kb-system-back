@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, asdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import generate_id, get_timestamp
+from utils import generate_id, get_timestamp, parse_ratio_to_float, parse_floor_string, format_p_value_display
 from .db_connection import pg_cursor, test_pg_connection
 
 
@@ -35,11 +35,22 @@ def result_to_dict(result) -> Dict:
 
     def factor_to_dict(f):
         """转换因素数据"""
+        raw_index = f.index if hasattr(f, 'index') else None
+        normalized_index = None
+        if raw_index is not None:
+            if isinstance(raw_index, (int, float)):
+                # 如果 > 10，认为是百分比形式，需要除以 100
+                normalized_index = raw_index / 100 if raw_index > 10 else raw_index
+            elif isinstance(raw_index, str):
+                normalized_index = parse_ratio_to_float(raw_index)
+
         return {
             'name': f.name,
-            'description': f.description,
-            'level': f.level,
-            'index': f.index,
+            'description': getattr(f, 'description', ''),
+            'level': getattr(f, 'level', ''),
+            'index': raw_index,
+            'index_normalized': normalized_index,
+            'index_raw_text': getattr(f, 'index_raw_text', ''),
         }
 
     def case_to_dict(case):
@@ -49,15 +60,15 @@ def result_to_dict(result) -> Dict:
             'address': loc_val_to_dict(case.address),
         }
 
-        # LocatedValue类型字段 - 【修复】添加 attachment_price
+        # LocatedValue类型字段
         located_value_fields = [
             'building_area', 'transaction_price', 'rental_price',
             'transaction_correction', 'market_correction', 'location_correction',
             'physical_correction', 'rights_correction', 'adjusted_price',
             'structure_factor', 'floor_factor', 'orientation_factor',
             'age_factor', 'physical_composite', 'composite_result',
-            'vs_result', 'decoration_price', 'attachment_price',  # 【修复】新增
-            'final_price'
+            'vs_result', 'decoration_price', 'attachment_price',
+            'final_price', 'east_to_west_factor',
         ]
         for field in located_value_fields:
             if hasattr(case, field):
@@ -68,8 +79,7 @@ def result_to_dict(result) -> Dict:
         # 字符串字段 - 【修复】添加缺失的字段
         string_fields = [
             'transaction_date', 'data_source', 'location', 'usage',
-            'p1_transaction', 'p2_date', 'p3_physical', 'p4_location',
-            'district', 'street', 'structure', 'orientation', 'decoration'  # 【修复】新增
+            'district', 'street', 'structure', 'orientation', 'decoration', 'east_to_west'
         ]
         for field in string_fields:
             if hasattr(case, field):
@@ -77,13 +87,55 @@ def result_to_dict(result) -> Dict:
                 if val:  # 只存非空值
                     data[field] = val
 
-        # 【修复】数字字段 - 新增
+        # ========== P 系数字段（标准房特有）【优化重点】==========
+        p_fields = ['p1_transaction', 'p2_date', 'p3_physical', 'p4_location']
+        for field in p_fields:
+            if hasattr(case, field):
+                raw_val = getattr(case, field)
+                if raw_val:
+                    # 【优化】同时保存原始值和计算值
+                    data[field] = {
+                        'raw': raw_val,  # 原始文本（'不修正', '108/103'）
+                        'value': parse_ratio_to_float(raw_val),  # 计算后的浮点值
+                        'display': format_p_value_display(raw_val),  # 展示用文本
+                    }
+        # ========== 楼层字段（支持复式）【优化重点】==========
+        if hasattr(case, 'floor') and case.floor:
+            data['floor_info'] = parse_floor_string(case.floor)
+            data['floor'] = case.floor  # 保留原始值
+
+        # 数字形式的楼层字段
         int_fields = ['build_year', 'total_floor', 'current_floor']
         for field in int_fields:
             if hasattr(case, field):
                 val = getattr(case, field)
-                if val:  # 只存非零值
-                    data[field] = val
+                if val:
+                    # 【优化】支持字符串格式
+                    if isinstance(val, str):
+                        # 尝试解析楼层
+                        if field in ['total_floor', 'current_floor']:
+                            parsed = parse_floor_string(val)
+                            if field == 'current_floor':
+                                data[field] = parsed.get('current')
+                                if parsed.get('is_duplex'):
+                                    data['floor_info'] = parsed
+                            elif field == 'total_floor':
+                                data[field] = parsed.get('total')
+                        else:
+                            try:
+                                data[field] = int(val)
+                            except ValueError:
+                                data[field] = val
+                    else:
+                        data[field] = val
+
+        # 【修复】数字字段 - 新增
+        # int_fields = ['build_year', 'total_floor', 'current_floor']
+        # for field in int_fields:
+        #     if hasattr(case, field):
+        #         val = getattr(case, field)
+        #         if val:  # 只存非零值
+        #             data[field] = val
 
         # 因素数据
         for factor_type in ['location_factors', 'physical_factors', 'rights_factors']:
@@ -179,10 +231,10 @@ def result_to_dict(result) -> Dict:
         data['final_total_price'] = loc_val_to_dict(result.final_total_price)
     if hasattr(result, 'floor_factor'):
         data['floor_factor'] = result.floor_factor
-
-    # 【修复】租金报告的价格单位
     if hasattr(result, 'price_unit'):
         data['price_unit'] = result.price_unit
+    if hasattr(result, 'final_price'):
+        data['final_price'] = loc_val_to_dict(result.final_price)
 
     return data
 
@@ -432,7 +484,7 @@ class KnowledgeBaseManager:
                         getattr(case, 'usage', ''),
                         getattr(case, 'build_year', 0),
                         getattr(case, 'total_floor', 0),
-                        getattr(case, 'current_floor', 0),
+                        getattr(case, 'current_floor', 0) if getattr(case, 'current_floor', 0) != "" else 0,
                         getattr(case, 'orientation', ''),
                         getattr(case, 'decoration', ''),
                         getattr(case, 'structure', ''),
@@ -449,14 +501,20 @@ class KnowledgeBaseManager:
         """获取报告"""
         with pg_cursor(commit=False) as cursor:
             cursor.execute("""
-                SELECT metadata FROM documents WHERE doc_id = %s
+                SELECT report_type, address, area, metadata, create_time FROM documents WHERE doc_id = %s
             """, (doc_id,))
             row = cursor.fetchone()
             if row:
-                data = row[0]
+                data = row
                 if isinstance(data, str):
                     return json.loads(data)
-                return data
+                return {
+                    'report_type': row[0],
+                    'address': row[1],
+                    'area': row[2],
+                    'metadata': row[3],
+                    'create_time': row[4].isoformat() if row[4] else None,
+                }
         return None
 
     def get_case(self, case_id: str) -> Optional[Dict]:

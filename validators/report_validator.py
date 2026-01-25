@@ -6,6 +6,9 @@
 
 import sys
 import os
+
+from utils import normalize_factor, parse_ratio_to_float
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from typing import List, Dict, Any
@@ -34,6 +37,8 @@ class FormulaCheck:
     difference: float
     is_valid: bool
     position: Dict = field(default_factory=dict)
+    inputs: Dict[str, Any] = field(default_factory=dict)
+    formula_detail: str = ""
 
 
 @dataclass
@@ -74,7 +79,7 @@ class ReportValidator:
         # 3. 反算校验
         checks = self._check_formulas(result)
         formula_checks.extend(checks)
-        
+
         # 将公式问题也加入issues
         for fc in formula_checks:
             if not fc.is_valid:
@@ -217,7 +222,9 @@ class ReportValidator:
                         val_obj = getattr(case, field)
                         val = val_obj.value if hasattr(val_obj, 'value') else val_obj
 
-                        if val and (val < p_min or val > p_max):
+                        normalize_val = normalize_factor(val)
+
+                        if normalize_val and (normalize_val < p_min or normalize_val > p_max):
                             issues.append(Issue(
                                 level='warning',
                                 category='reasonability',
@@ -238,7 +245,8 @@ class ReportValidator:
                         val_obj = getattr(case, field)
                         val = val_obj.value if hasattr(val_obj, 'value') else val_obj
 
-                        if val and (val < p_min or val > p_max):
+                        normalize_val = normalize_factor(val)
+                        if normalize_val and (normalize_val < p_min or normalize_val > p_max):
                             issues.append(Issue(
                                 level='info',
                                 category='reasonability',
@@ -258,7 +266,9 @@ class ReportValidator:
                         val_obj = getattr(case, field)
                         if val_obj and hasattr(val_obj, 'value') and val_obj.value:
                             val = val_obj.value
-                            if val < min_val or val > max_val:
+
+                            normalize_val = normalize_factor(val)
+                            if normalize_val < min_val or normalize_val > max_val:
                                 issues.append(Issue(
                                     level='warning',
                                     category='reasonability',
@@ -309,6 +319,25 @@ class ReportValidator:
         checks = []
         tolerance = self.config.get('formula_tolerance', 10)
 
+        def get_p_value(case, field_name, default=1.0):
+            """获取 P 系数值和原始文本"""
+            if not hasattr(case, field_name):
+                return default, None
+
+            val = getattr(case, field_name)
+            if val is None:
+                return default, None
+
+            # 如果是 LocatedValue
+            if hasattr(val, 'value'):
+                raw = getattr(val, 'raw_text', str(val.value))
+                return parse_ratio_to_float(val.value) or default, raw
+
+            # 字符串或数字
+            raw = str(val)
+            parsed = parse_ratio_to_float(val)
+            return parsed or default, raw
+
         report_type = getattr(result, 'type', None)
         if not report_type:
             if hasattr(result.cases[0], 'physical_composite') if result.cases else False:
@@ -316,86 +345,54 @@ class ReportValidator:
             else:
                 report_type = 'shezhi'
 
-        def parse_ratio_to_float(val, *, precision=6):
-            if val is None:
-                return None
-
-            if isinstance(val, (int, float)):
-                return float(val)
-
-            s = str(val).strip()
-
-            if not s:
-                return None
-
-            # 不修正
-            if s == "不修正":
-                return 1.0
-
-            if "/" in s:
-                try:
-                    a, b = s.split("/", 1)
-                    a = float(a.strip())
-                    b = float(b.strip())
-                    if b == 0:
-                        return None
-                    return round(a / b, precision)
-                except ValueError:
-                    return None
-
-            try:
-                return float(s)
-            except ValueError:
-                return None
-
         for case in result.cases:
             case_id = getattr(case, 'case_id', '?')
 
             if report_type == 'biaozhunfang':
                 # === 标准房公式验证 ===
-                # 比准价格 = Vs X P1 X P2 X P3 X P4 -Va - Vb
+                # 比准价格 = Vs X P1 X P2 X P3 X P4 -Va - Vbf
 
                 # 获取可比实例成交价格 Vs
                 vs = 0
+                vs_raw = None
                 if hasattr(case, 'transaction_price') and case.transaction_price and case.transaction_price.value:
                     vs = case.transaction_price.value
+                    vs_raw = getattr(case.transaction_price, 'raw_text', str(vs))
 
                 # 获取 P1, P2, P3(physical_composite), P4
-                p1 = 1.0
-                if hasattr(case, 'p1_transaction'):
-                    p1_obj = getattr(case, 'p1_transaction')
-                    p1 = p1_obj.value if hasattr(p1_obj, 'value') else (p1_obj or 1.0)
-                    p1 = parse_ratio_to_float(p1)
+                p1, p1_raw = get_p_value(case, 'p1_transaction', 1.0)
+                p2, p2_raw = get_p_value(case, 'p2_date', 1.0)
 
-                p2 = 1.0
-                if hasattr(case, 'p2_date'):
-                    p2_obj = getattr(case, 'p2_date')
-                    p2 = p2_obj.value if hasattr(p2_obj, 'value') else (p2_obj or 1.0)
-                    p2 = parse_ratio_to_float(p2)
+                p3, p3_raw = 1.0, None
+                if hasattr(case, 'p3_physical') and getattr(case, 'p3_physical'):
+                    p3, p3_raw = get_p_value(case, 'p3_physical', 1.0)
+                elif hasattr(case, 'physical_composite') and case.physical_composite:
+                    if hasattr(case.physical_composite, 'value') and case.physical_composite.value:
+                        p3 = case.physical_composite.value
+                        p3_raw = getattr(case.physical_composite, 'raw_text', str(p3))
 
-                p3 = 1.0
-                if hasattr(case, 'p3_physical') or hasattr(case, 'physical_composite'):
-                    p3_obj = getattr(case, 'p3_physical') if hasattr(case, 'p3_physical') else getattr(case, 'physical_composite')
-                    p3 = p3_obj.value if hasattr(p3_obj, 'value') else (p3_obj or 1.0)
-                    p3 = parse_ratio_to_float(p3)
 
-                p4 = 1.0
-                if hasattr(case, 'p4_location'):
-                    p4_obj = getattr(case, 'p4_location')
-                    p4 = p4_obj.value if hasattr(p4_obj, 'value') else (p4_obj or 1.0)
-                    p4 = parse_ratio_to_float(p4)
+                p4, p4_raw = get_p_value(case, 'p4_location', 1.0)
 
                 va = 0
-                if hasattr(case, 'attachment_price'):
-                    va_obj = getattr(case, 'attachment_price')
-                    va = va_obj.value if hasattr(va_obj, 'value') else (va_obj or 0)
-                    va = parse_ratio_to_float(va)
+                va_raw = None
+                if hasattr(case, 'attachment_price') and case.attachment_price:
+                    if hasattr(case.attachment_price, 'value'):
+                        va = case.attachment_price.value or 0
+                        va_raw = getattr(case.attachment_price, 'raw_text', str(va))
+                    else:
+                        va = parse_ratio_to_float(case.attachment_price) or 0
+                        va_raw = str(case.attachment_price)
 
                 vb = 0
-                if hasattr(case, 'decoration_price'):
-                    vb_obj = getattr(case, 'decoration_price')
-                    vb = vb_obj.value if hasattr(vb_obj, 'value') else (vb_obj or 0)
-                    vb = parse_ratio_to_float(vb)
+                vb_raw = None
+                if hasattr(case, 'decoration_price') and case.decoration_price:
+                    if hasattr(case.decoration_price, 'value'):
+                        vb = case.decoration_price.value or 0
+                        vb_raw = getattr(case.decoration_price, 'raw_text', str(vb))
+                    else:
+                        vb = parse_ratio_to_float(case.decoration_price) or 0
+                        vb_raw = str(case.decoration_price)
 
                 # 获取实际比准价格
                 final_price = 0
@@ -414,6 +411,32 @@ class ReportValidator:
                     # 使用百分比容差(1%)
                     tolerance_pct = max(expected * 0.01, tolerance)
 
+                    # 构建输入参数
+                    inputs = {
+                        'vs': {'raw': vs_raw, 'value': vs},
+                        'p1': {'raw': p1_raw, 'value': p1},
+                        'p2': {'raw': p2_raw, 'value': p2},
+                        'p3': {'raw': p3_raw, 'value': p3},
+                        'p4': {'raw': p4_raw, 'value': p4},
+                        'va': {'raw': va_raw, 'value': va},
+                        'vb': {'raw': vb_raw, 'value': vb},
+                    }
+
+                    # 构建公式详情
+                    formula_parts = [f"{vs:.2f}"]
+                    if p1 != 1.0 or p1_raw:
+                        formula_parts.append(f"×{p1:.4f}")
+                    if p2 != 1.0 or p2_raw:
+                        formula_parts.append(f"×{p2:.4f}")
+                    formula_parts.append(f"×{p3:.4f}")
+                    formula_parts.append(f"×{p4:.4f}")
+                    if va > 0:
+                        formula_parts.append(f"-{va:.2f}")
+                    if vb > 0:
+                        formula_parts.append(f"-{vb:.2f}")
+                    formula_parts.append(f"={expected:.2f}")
+                    formula_detail = "".join(formula_parts)
+
                     checks.append(FormulaCheck(
                         case_id=case_id,
                         formula_name='比准价格(VsxP1xP2xP3xP4-Va-Vb)',
@@ -422,61 +445,83 @@ class ReportValidator:
                         difference=round(diff, 2),
                         is_valid=(diff < tolerance_pct),
                         position=final_price_position,
+                        inputs=inputs,
+                        formula_detail=formula_detail,
                     ))
 
                 # 验证 P3 = 结构系数 x 楼层系数 x 朝向系数 x 成新系数 x 东西至修正
-                sf = 1.0
-                if hasattr(case, 'structure_factor') and case.structure_factor and case.structure_factor.value:
-                    sf_obj = getattr(case, 'structure_factor')
-                    sf = (sf_obj.value if hasattr(sf_obj, 'value') else (sf_obj or 1.0)) / 100
+                def get_factor_value(case, field_name, default=1.0):
+                    if not hasattr(case, field_name):
+                        return default, None
+                    val = getattr(case, field_name)
+                    if val is None:
+                        return default, None
+                    if hasattr(val, 'value') and val.value:
+                        # 判断是百分比还是小数
+                        v = val.value
+                        if v > 10:  # 百分比形式
+                            v = v / 100
+                        return v, getattr(val, 'raw_text', str(val.value))
+                    return default, None
 
-                ff = 1.0
-                if hasattr(case, 'floor_factor') and case.floor_factor and case.floor_factor.value:
-                    ff_obj = getattr(case, 'floor_factor')
-                    ff = (ff_obj.value if hasattr(ff_obj, 'value') else (ff_obj or 1.0)) / 100
+                sf, sf_raw = get_factor_value(case, 'structure_factor')
+                ff, ff_raw = get_factor_value(case, 'floor_factor')
+                of, of_raw = get_factor_value(case, 'orientation_factor')
+                af, af_raw = get_factor_value(case, 'age_factor')
+                ew, ew_raw = get_factor_value(case, 'east_to_west_factor')
 
-                of = 1.0
-                if hasattr(case, 'orientation_factor') and case.orientation_factor and case.orientation_factor.value:
-                    of_obj = getattr(case, 'orientation_factor')
-                    of = (of_obj.value if hasattr(of_obj, 'value') else (of_obj or 1.0)) / 100
+                p3_composite, p3_composite_row = get_factor_value(case, 'physical_composite')
 
-                af = 1.0
-                if hasattr(case, 'age_factor') and case.age_factor and case.age_factor.value:
-                    af_obj = getattr(case, 'age_factor')
-                    af = (af_obj.value if hasattr(af_obj, 'value') else (af_obj or 1.0)) / 100
+                # 如果至少有两个子系数有效，则验证 P3
+                valid_factors = sum([
+                    sf != 1.0 or sf_raw is not None,
+                    ff != 1.0 or ff_raw is not None,
+                    of != 1.0 or of_raw is not None,
+                    af != 1.0 or af_raw is not None,
+                    ew != 1.0 or ew_raw is not None,
+                ])
 
-                ewf = 1.0
-                if hasattr(case, 'east_west_factor') and case.east_west_factor and case.east_west_factor.value:
-                    ewf_obj = getattr(case, 'east_west_factor')
-                    ewf = (ewf_obj.value if hasattr(ewf_obj, 'value') else (ewf_obj or 1.0)) / 100
+                if valid_factors >= 2 and p3_composite != 1.0:
+                    expected_p3 = sf * ff * of * af * ew
+                    diff_p3 = abs(expected_p3 - p3_composite)
 
-                print(sf, ff, of, af, ewf, p3)
+                    inputs_p3 = {
+                        'sf': {'raw': sf_raw, 'value': sf},
+                        'ff': {'raw': ff_raw, 'value': ff},
+                        'of': {'raw': of_raw, 'value': of},
+                        'af': {'raw': af_raw, 'value': af},
+                        'ew': {'raw': ew_raw, 'value': ew},
+                    }
 
-                expected_p3 = sf * ff * of * af * ewf
-                diff_p3 = abs(expected_p3 - p3)
+                    formula_detail_p3 = f"{sf:.4f}×{ff:.4f}×{of:.4f}×{af:.4f}×{ew:.4f}={expected_p3:.4f}"
 
-                checks.append(FormulaCheck(
-                    case_id=case_id,
-                    formula_name='P3综合系数',
-                    expected=round(expected_p3, 4),
-                    actual=p3,
-                    difference=round(diff_p3, 4),
-                    is_valid=(diff_p3 < 0.01),
-                    position={},
-                ))
+                    checks.append(FormulaCheck(
+                        case_id=case_id,
+                        formula_name='P3实体修正',
+                        expected=round(expected_p3, 4),
+                        actual=p3_composite,
+                        difference=round(diff_p3, 4),
+                        is_valid=(diff_p3 < 0.01),  # 允许1%误差
+                        position={},
+                        inputs=inputs_p3,
+                        formula_detail=formula_detail_p3,
+                    ))
             else:
                 # === 涉执/租金 ===
                 # 修正后单价 = 交易价格 × 交易修正 × 市场修正 × 区位修正 × 实物修正 × 权益修正
 
                 trans = 0
+                trans_raw = None
                 if hasattr(case, 'transaction_price') and case.transaction_price and case.transaction_price.value:
                     trans = case.transaction_price.value
-                elif hasattr(case, 'rent_price') and case.rent_price and case.rent_price.value:
-                    trans = case.rent_price.value
+                    trans_raw = getattr(case.transaction_price, 'raw_text', str(trans))
+                elif hasattr(case, 'rental_price') and case.rental_price and case.rental_price.value:
+                    trans = case.rental_price.value
+                    trans_raw = getattr(case.rental_price, 'raw_text', str(trans))
 
                 adj = 0
                 adj_position = {}
-                if hasattr(case, 'adjusted_price') and case.adjusted_price and case.transaction_price.value:
+                if hasattr(case, 'adjusted_price') and case.adjusted_price and case.adjusted_price.value:
                     adj = case.adjusted_price.value
                     if hasattr(case.adjusted_price, 'position') and case.adjusted_price.position:
                         adj_position = {
@@ -485,30 +530,37 @@ class ReportValidator:
                         }
 
                 if trans > 0 and adj > 0:
-                    tc = 1.0
-                    if hasattr(case, 'transaction_correction') and case.transaction_correction:
-                        tc = case.transaction_correction.value or 1.0
+                    def get_correction(case, field_name):
+                        if not hasattr(case, field_name):
+                            return 1.0, None
+                        val = getattr(case, field_name)
+                        if val is None:
+                            return 1.0, None
+                        if hasattr(val, 'value') and val.value:
+                            return val.value, getattr(val, 'raw_text', str(val.value))
+                        return 1.0, None
 
-                    mc = 1.0
-                    if hasattr(case, 'market_correction') and case.market_correction:
-                        mc = case.market_correction.value or 1.0
-
-                    lc = 1.0
-                    if hasattr(case, 'location_correction') and case.location_correction:
-                        lc = case.location_correction.value or 1.0
-
-                    pc = 1.0
-                    if hasattr(case, 'physical_correction') and case.physical_correction:
-                        pc = case.physical_correction.value or 1.0
-
-                    rc = 1.0
-                    if hasattr(case, 'rights_correction') and case.rights_correction:
-                        rc = case.rights_correction.value or 1.0
+                    tc, tc_raw = get_correction(case, 'transaction_correction')
+                    mc, mc_raw = get_correction(case, 'market_correction')
+                    lc, lc_raw = get_correction(case, 'location_correction')
+                    pc, pc_raw = get_correction(case, 'physical_correction')
+                    rc, rc_raw = get_correction(case, 'rights_correction')
 
                     expected = trans * tc * mc * lc * pc * rc
                     diff = abs(expected - adj)
                     # 使用百分比容差(1%)
                     tolerance_pct = max(expected * 0.01, tolerance)
+
+                    inputs = {
+                        'trans': {'raw': trans_raw, 'value': trans},
+                        'tc': {'raw': tc_raw, 'value': tc},
+                        'mc': {'raw': mc_raw, 'value': mc},
+                        'lc': {'raw': lc_raw, 'value': lc},
+                        'pc': {'raw': pc_raw, 'value': pc},
+                        'rc': {'raw': rc_raw, 'value': rc},
+                    }
+
+                    formula_detail = f"{trans:.2f}×{tc:.4f}×{mc:.4f}×{lc:.4f}×{pc:.4f}×{rc:.4f}={expected:.2f}"
 
                     checks.append(FormulaCheck(
                         case_id=case_id,
@@ -518,6 +570,8 @@ class ReportValidator:
                         difference=round(diff, 2),
                         is_valid=(diff < tolerance_pct),
                         position=adj_position,
+                        inputs=inputs,
+                        formula_detail=formula_detail,
                     ))
         
         return checks
