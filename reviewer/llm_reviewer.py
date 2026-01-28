@@ -289,7 +289,7 @@ class LLMReviewer:
 
         return result
 
-    def review_full_document(self, paragraphs: list, report_type: str = "shezhi") -> LLMReviewResult:
+    def review_full_document(self, paragraphs: list, report_type: str = "shezhi", extraction_data: dict = None) -> LLMReviewResult:
         """
         全文审查（一次性发送整个文档，保持上下文连贯性）
 
@@ -301,6 +301,7 @@ class LLMReviewer:
         Args:
             paragraphs: 段落列表 [{'index': 0, 'text': '...'}, ...]
             report_type: 报告类型
+            extraction_data: 提取的数据
 
         Returns:
             LLMReviewResult，issues中包含paragraph_index字段
@@ -322,21 +323,21 @@ class LLMReviewer:
 
         if estimated_tokens <= max_input_tokens:
             # 全文一次性审查
-            result = self._review_document_batch(paragraphs, report_type)
+            result = self._review_document_batch(paragraphs, report_type, extraction_data)
         else:
             # 文档太长，智能分段
-            result = self._review_document_chunked(paragraphs, report_type, max_input_tokens)
+            result = self._review_document_chunked(paragraphs, report_type, max_input_tokens, extraction_data)
 
         return result
 
-    def _review_document_batch(self, paragraphs: list, report_type: str) -> LLMReviewResult:
+    def _review_document_batch(self, paragraphs: list, report_type: str, extraction_data: dict = None) -> LLMReviewResult:
         """
         审查一批段落（内部方法）
         """
         result = LLMReviewResult()
 
         try:
-            prompt = build_full_document_review_prompt(paragraphs, report_type)
+            prompt = build_full_document_review_prompt(paragraphs, report_type, extraction_data)
             response = self.llm.call_json(prompt)
             result.raw_responses.append(response)
 
@@ -358,7 +359,7 @@ class LLMReviewer:
 
         return result
 
-    def _review_document_chunked(self, paragraphs: list, report_type: str, max_tokens: int) -> LLMReviewResult:
+    def _review_document_chunked(self, paragraphs: list, report_type: str, max_tokens: int, extraction_data: dict = None) -> LLMReviewResult:
         """
         分块审查长文档（保持上下文窗口重叠）
         """
@@ -369,7 +370,7 @@ class LLMReviewer:
 
         for chunk_idx, chunk in enumerate(chunks):
             try:
-                chunk_result = self._review_document_batch(chunk, report_type)
+                chunk_result = self._review_document_batch(chunk, report_type, extraction_data)
                 result.issues.extend(chunk_result.issues)
                 result.raw_responses.extend(chunk_result.raw_responses)
 

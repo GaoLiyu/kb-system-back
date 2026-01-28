@@ -4,7 +4,6 @@ LLM审查提示词
 针对房地产估价报告的语义审查
 """
 
-
 def build_paragraph_review_prompt(paragraphs: list, report_type: str = "shezhi") -> str:
     """
     构建段落审查提示词（基于评审标准-外在质量部分）
@@ -584,179 +583,530 @@ def build_factor_review_prompt(factors_data: list) -> str:
     return prompt.format(factors_info="\n".join(factors_info_parts))
 
 
-def build_full_document_review_prompt(paragraphs: list, report_type: str = "shezhi") -> str:
+# def build_full_document_review_prompt(paragraphs: list, report_type: str = "shezhi") -> str:
+#     """
+#     构建全文审查提示词（基于房地产估价报告评审标准）
+#
+#     Args:
+#         paragraphs: 段落列表 [{'index': 0, 'text': '...'}, ...]
+#         report_type: 报告类型
+#     """
+#
+#     prompt = '''你是一位资深房地产估价报告审查专家，请依据《房地产估价规范》GB/T 50291-2015、《涉执房地产处置司法评估专业技术评审方法（试行）》及相关评审标准，对以下完整报告进行全面审查。
+#
+# 【报告类型】
+# {report_type_desc}
+#
+# 【关键审查原则】
+# 1. **上下文连贯性**：段落之间存在逻辑关联，标题段落后的内容通常是解释说明，不应孤立审查
+# 2. **数据一致性**：同一属性在全文不同位置必须保持一致（面积、价格、日期等）
+# 3. **逻辑自洽性**：估价假设、计算过程、估价结论应前后呼应、逻辑严密
+# 4. **专业规范性**：术语、方法、公式使用应符合《房地产估价规范》要求
+# 5. **完整性要求**：关键要素不应缺失（参照评审标准28项必备内容）
+#
+# 【一、报告结构与要素完整性审查】
+# 根据评审标准，检查以下必备要素是否存在：
+#
+# 1. 封面要素（估价报告名称、编号、委托人、估价机构、估价师姓名及注册号、出具日期）
+# 2. 致估价委托人函（估价目的、估价对象、价值时点、价值类型、估价方法、估价结果、机构盖章）
+# 3. 目录结构（声明、假设和限制条件、估价结果报告、估价技术报告、附件）
+# 4. 估价师声明（职业道德、专业能力承诺）
+# 5. 估价假设和限制条件（一般假设、未定事项假设、背离事实假设、不相一致假设、依据不足假设）
+# 6. 估价结果报告基本内容（委托人、估价机构、估价目的、估价对象、价值时点、价值类型、估价原则、估价依据、估价方法、估价结果、估价师签名、实地查勘期、估价作业期）
+# 7. 估价技术报告核心内容（估价对象描述与分析、市场背景描述与分析、最高最佳利用分析、估价方法适用性分析、估价测算过程、估价结果确定）
+#
+# 【二、估价对象描述审查】
+# 1. 实物状况：土地（面积、形状、地形、地势、开发程度）、建筑物（规模、结构、设施、装修、新旧程度）
+# 2. 权益状况：用途、规划条件、权属、共有情况、用益物权、担保物权、租赁占用、查封等
+# 3. 区位状况：位置、交通、周围环境、外部配套设施
+# 4. **数值一致性**：面积、用途等关键属性在不同章节必须一致
+#
+# 【三、估价方法审查（重点）】
+#
+# **如采用比较法，检查：**
+# 1. 可比实例选取（不少于3个、来源真实、价格内涵清晰、可比性强）
+# 2. 建立比较基础（统一财产范围、付款方式、融资条件、税费负担、计价单位）
+# 3. 交易情况修正（是否存在非正常交易因素）
+# 4. 市场状况调整（期日修正、价格指数变化）
+# 5. 区位状况调整（位置、交通、环境等因素修正）
+# 6. 实物状况调整（面积、结构、装修、新旧等因素修正）
+# 7. 权益状况调整（用途、使用期限等）
+# 8. **计算准确性**：各项修正系数相乘计算过程是否正确
+# 9. **结果合理性**：修正后价格是否在合理范围内
+#
+# **如采用收益法，检查：**
+# 1. 租金水平确定（依据充分、内涵清晰）
+# 2. 空置率和租金损失（合理性）
+# 3. 运营费用构成（完整性、取值依据）
+# 4. 净收益计算（前后一致）
+# 5. 报酬率/资本化率确定（方法正确、依据充分）
+# 6. 收益期限确定（依据充分）
+#
+# **如采用成本法，检查：**
+# 1. 土地取得成本（途径明确、构成完整）
+# 2. 建设成本（建安工程费、基础设施费、配套设施费、期间税费）
+# 3. 管理费用、销售费用、投资利息、销售税费
+# 4. 开发利润（利润率内涵清楚、取值合理）
+# 5. 折旧分析（维护使用状况描述、成新率确定）
+#
+# 【四、逻辑与计算审查】
+# 1. **前后一致性**：估价假设、估价方法选用、计算过程、估价结果在不同章节的表述是否一致
+# 2. **计算准确性**：公式选用是否正确、计算过程是否完整、计算结果是否准确
+# 3. **参数合理性**：修正系数、折现率、成新率等参数取值是否有依据、是否合理
+# 4. **结论支撑性**：估价结论是否有充分的论证支撑，是否存在跳跃性结论
+#
+# 【五、市场状况分析审查】
+# 1. 当地经济社会发展状况描述
+# 2. 房地产市场总体状况分析
+# 3. 同类房地产市场详细分析（供需、价格走势）
+# 4. 分析与估价参数取值的一致性
+#
+# 【六、专业表述审查】
+# 1. 术语规范性（估价术语是否符合《房地产估价规范》）
+# 2. 表述准确性（是否存在错别字、语病、表述不清）
+# 3. 逻辑性（段落之间逻辑关系是否清晰）
+# 4. 简洁性（是否存在不必要的重复）
+#
+# 【不应报告的情况】
+# - 标题段落后紧跟的解释性内容（这是正常结构，除非解释与标题不符）
+# - 纯格式问题（缩进、空行、字体等）
+# - 主观文风偏好（在不影响专业性的前提下）
+# - 不确定的问题（宁缺毋滥，必须有明确依据）
+# - 轻微的表述优化建议（除非影响理解或专业性）
+#
+# 【严重问题判定标准】
+# 参照评审标准，以下情况属于critical级别：
+# 1. 虚构、编造估价对象状况、可比实例、估价基础数据
+# 2. 估价目的严重错误、未对应相应行为
+# 3. 价值时点确定错误
+# 4. 估价方法选用错误、运用错误
+# 5. 计算公式选用错误、计算结果错误
+# 6. 关键数据前后矛盾（如面积、价格在不同位置不一致）
+# 7. 估价结果不合理偏高或偏低
+#
+# 【报告全文】
+# {document_text}
+#
+# 【输出JSON格式】
+# {{
+#   "errors": [
+#     {{
+#       "paragraph_index": 问题主要所在的段落索引号（整数）,
+#       "related_paragraphs": [相关段落索引号列表（如问题涉及多个段落的对比）],
+#       "category": "COMPLETENESS | DATA_CONSISTENCY | CALCULATION | METHOD_APPLICATION | LOGIC | TERMINOLOGY | EXPRESSION",
+#       "type": "具体问题类型（如'可比实例不足'、'面积前后不一致'、'修正系数计算错误'）",
+#       "severity": "minor | major | critical",
+#       "span": "问题所在的原文片段（尽可能精确定位）",
+#       "standard_reference": "违反的评审标准条款（如'表1-1第1项：可比实例不少于3个'）",
+#       "comment": "问题详细说明（结合上下文说明为何构成问题）",
+#       "suggestion": "具体修改建议",
+#       "impact": "问题影响（如'影响估价结果准确性'、'违反规范要求'）"
+#     }}
+#   ],
+#   "summary": {{
+#     "total_errors": 错误总数,
+#     "critical_count": 严重错误数量,
+#     "major_count": 重要错误数量,
+#     "minor_count": 轻微错误数量,
+#     "main_issues": ["主要问题类别列表"],
+#     "overall_assessment": "整体评价（一句话）",
+#     "compliance_score": "合规性评估（high/medium/low）"
+#   }}
+# }}
+#
+# 【错误类别说明】
+# - COMPLETENESS：要素缺失（关键内容、必备章节缺失）
+# - DATA_CONSISTENCY：数据不一致（同一属性在不同位置数值不同）
+# - CALCULATION：计算错误（公式错误、计算过程错误、结果错误）
+# - METHOD_APPLICATION：方法运用问题（方法选择不当、参数取值不合理、步骤缺失）
+# - LOGIC：逻辑问题（前后矛盾、因果关系不成立、结论缺乏支撑）
+# - TERMINOLOGY：术语问题（专业术语使用不当、定义错误）
+# - EXPRESSION：表述问题（错别字、严重语病、表述不清影响理解）
+#
+# 【严重程度说明】
+# - critical：严重错误，导致报告不合格或估价结果严重偏离（扣分≥5分或属于定性评审不合格项）
+# - major：重要问题，显著影响报告质量（扣分2-4分）
+# - minor：轻微问题，建议修改以提升质量（扣分≤1分）
+#
+# 如果未发现确定的问题，输出：
+# {{
+#   "errors": [],
+#   "summary": {{
+#     "total_errors": 0,
+#     "critical_count": 0,
+#     "major_count": 0,
+#     "minor_count": 0,
+#     "main_issues": [],
+#     "overall_assessment": "未发现明显问题，报告基本符合规范要求",
+#     "compliance_score": "high"
+#   }}
+# }}
+# '''
+#
+#     type_desc = {
+#         'shezhi': '涉执报告（司法处置房产评估）\n- 估价目的：为人民法院确定财产处置参考价\n- 评审重点：比较法应用规范性、可比实例真实性、市场状况调整合理性、估价结果客观性',
+#         'zujin': '租金报告（租金评估）\n- 估价目的：确定房地产租金水平\n- 评审重点：收益法或比较法应用、租金市场分析、租赁案例可比性、价格单位（元/㎡·年）',
+#         'biaozhunfang': '标准房报告（标准房价格评估）\n- 估价目的：建立批量评估基准\n- 评审重点：比较法规范性、市场代表性、参数标准化',
+#     }
+#
+#     # 格式化段落，带编号便于定位
+#     document_text = "\n".join([
+#         f"[段落{p['index']}] {p['text']}"
+#         for p in paragraphs
+#     ])
+#
+#     return prompt.format(
+#         report_type_desc=type_desc.get(report_type, '房地产估价报告'),
+#         document_text=document_text
+#     )
+
+
+# ============================================================================
+#（所有报告类型通用）
+# ============================================================================
+
+# 字段名 -> 中文名映射（覆盖所有报告类型的 subject 字段）
+SUBJECT_FIELD_MAP = {
+    # ========== 基础信息 ==========
+    'address': '估价对象地址',
+    'building_area': '建筑面积(㎡)',
+    'unit_price': '评估单价(元/㎡)',
+    'total_price': '评估总价(元)',
+
+    # ========== 产权信息 ==========
+    'cert_no': '不动产权证号',
+    'owner': '权利人',
+    'usage': '规划用途',
+    'plan_usage': '规划用途',
+
+    # ========== 建筑信息 ==========
+    'structure': '建筑结构',
+    'floor': '楼层',
+    'current_floor': '所在楼层',
+    'total_floor': '总层数',
+    'build_year': '建成年份',
+    'orientation': '朝向',
+    'decoration': '装修状况',
+
+    # ========== 区位信息 ==========
+    'district': '所属区域',
+    'street': '所属街道/镇',
+    'location_code': '区位代码',
+
+    # ========== 土地信息 ==========
+    'land_type': '土地类型',
+    'land_use_type': '土地用途',
+    'land_area': '土地面积(㎡)',
+    'land_end_date': '土地使用权终止日期',
+    'end_date': '土地使用权终止日期',
+
+    # ========== 估价信息 ==========
+    'value_date': '价值时点',
+    'appraisal_purpose': '估价目的',
+    'transaction_date': '交易日期',
+
+    # ========== 标准房特有 ==========
+    'cart_type': '产权类型',
+    'east_to_west': '东西至',
+    'appendages': '附属物',
+    'avg_listing_price': '片区二手房挂牌均价(元/㎡)',
+
+    # ========== 修正系数（标准房）==========
+    'structure_factor': '结构修正系数',
+    'floor_factor': '楼层修正系数',
+    'orientation_factor': '朝向修正系数',
+    'age_factor': '成新修正系数',
+    'east_to_west_factor': '东西至修正系数',
+    'physical_composite': '实体状况综合系数',
+
+    # ========== 租金特有 ==========
+    'price_unit': '价格单位',
+}
+
+# 报告类型中文名
+REPORT_TYPE_MAP = {
+    'shezhi': '涉执报告（司法处置房产评估）',
+    'zujin': '租金报告（租金评估）',
+    'biaozhunfang': '标准房报告（标准房价格评估）',
+}
+
+def _extract_value(val):
     """
-    构建全文审查提示词（基于房地产估价报告评审标准）
+    从各种格式中提取值
+
+    支持格式：
+    - None -> None
+    - 123 -> 123
+    - "abc" -> "abc"
+    - {'value': 123, ...} -> 123
+    - {'raw': 'xxx', 'value': 123} -> 123 (优先 value)
+    - LocatedValue 对象 -> value 属性
+    """
+    if val is None:
+        return None
+
+    # dict 价格
+    if isinstance(val, dict):
+        # 优先取 value, 没有则取raw
+        return val.get('value') or val.get('raw')
+
+    # LocatedValue 对象
+    if hasattr(val, 'value'):
+        return val.value
+
+    # 直接值
+    return val
+
+
+def _format_value(val, field_name: str = "") -> str:
+    """
+    格式化值为显示字符串
+
+    Args:
+        val: 原始值
+        field_name: 字段名
+
+    Returns:
+        格式化后的字符串
+    """
+    extracted = _extract_value(val)
+
+    if extracted is None:
+        return None
+
+    # 数字格式化
+    if isinstance(extracted, float):
+        # 面积、价格保留两位小数
+        if 'area' in field_name or 'price' in field_name:
+            return f"{extracted:,.2f}"
+
+        # 系数保留四位小数
+        if 'factor' in field_name or 'composite' in field_name:
+            return f"{extracted:,.4f}"
+
+        return str(extracted)
+
+    if isinstance(extracted, int):
+        # 年份不加千分位
+        if 'year' in field_name:
+            return str(extracted)
+        # 价格加千分位
+        if 'price' in field_name:
+            return f"{extracted:,}"
+        return str(extracted)
+
+    return str(extracted)
+
+
+def format_subject_for_prompt(subject_data: dict, report_type: str = None) -> str:
+    """
+    将 subject 数据格式化为 prompt 中的对比信息
+
+    Args:
+        subject_data: 提取的 subject 数据字典
+        report_type: 报告类型
+
+    Returns:
+        格式化后的文本
+    """
+    if not subject_data:
+        return ""
+
+    lines = []
+    lines.append("【系统提取的估价对象数据】")
+    lines.append("（请与报告原文中的描述进行核对，检查是否存在不一致）")
+    lines.append("")
+
+    # 按类别组织字段
+    categories = [
+        ('基础信息', ['address', 'building_area', 'unit_price', 'total_price', 'usage', 'plan_usage']),
+        ('产权信息', ['cert_no', 'owner']),
+        ('建筑信息', ['structure', 'floor', 'current_floor', 'total_floor', 'build_year', 'orientation', 'decoration']),
+        ('区位信息', ['district', 'street', 'location_code']),
+        ('土地信息', ['land_type', 'land_use_type', 'land_area', 'land_end_date', 'end_date']),
+        ('估价信息', ['value_date', 'appraisal_purpose', 'transaction_date']),
+    ]
+
+    # 标准房特有字段
+    if report_type == 'biaozhunfang':
+        categories.append(('标准房信息', [
+            'cart_type', 'east_to_west', 'appendages', 'avg_listing_price',
+            'structure_factor', 'floor_factor', 'orientation_factor',
+            'age_factor', 'east_to_west_factor', 'physical_composite'
+        ]))
+
+    for category_name, fields in categories:
+        category_items = []
+
+        for field in fields:
+            if field in subject_data:
+                val = subject_data[field]
+                formatted = _format_value(val, field)
+
+                if formatted:  # 只显示非空值
+                    cn_name = SUBJECT_FIELD_MAP.get(field, field)
+                    category_items.append(f"  • {cn_name}: {formatted}")
+
+        if category_items:
+            lines.append(f"▶ {category_name}:")
+            lines.extend(category_items)
+            lines.append("")
+
+    # 处理因素数据（涉执/租金报告）
+    for factor_type, factor_cn in [
+        ('location_factors', '区位因素'),
+        ('physical_factors', '实物因素'),
+        ('rights_factors', '权益因素'),
+    ]:
+        if factor_type in subject_data and subject_data[factor_type]:
+            factors = subject_data[factor_type]
+            if isinstance(factors, dict) and factors:
+                lines.append(f"▶ {factor_cn}:")
+                for factor_name, factor_data in factors.items():
+                    if isinstance(factor_data, dict):
+                        desc = factor_data.get('description', '')
+                        level = factor_data.get('level', '')
+                        index = factor_data.get('index', '')
+
+                        if desc or level or index:
+                            parts = []
+                            if desc:
+                                parts.append(f"描述=\"{desc}\"")
+                            if level:
+                                parts.append(f"等级=\"{level}\"")
+                            if index:
+                                parts.append(f"指数={index}")
+                            lines.append(f"  • {factor_name}: {', '.join(parts)}")
+                lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_full_document_review_prompt(
+        paragraphs: list,
+        report_type: str = "shezhi",
+        extraction_data: dict = None,  # 【新增】提取结果
+) -> str:
+    """
+    构建全文审查提示词（增强版 - 支持提取数据对比）
 
     Args:
         paragraphs: 段落列表 [{'index': 0, 'text': '...'}, ...]
         report_type: 报告类型
+        extraction_data: 提取的结构化数据（包含 subject）
     """
 
-    prompt = '''你是一位资深房地产估价报告审查专家，请依据《房地产估价规范》GB/T 50291-2015、《涉执房地产处置司法评估专业技术评审方法（试行）》及相关评审标准，对以下完整报告进行全面审查。
+    # 报告类型描述
+    type_desc = REPORT_TYPE_MAP.get(report_type, '房地产估价报告')
+
+    # 【新增】格式化提取的 subject 数据
+    subject_info = ""
+    if extraction_data:
+        subject_info = format_subject_for_prompt(
+            extraction_data,
+            report_type
+        )
+
+    prompt = f'''你是一位资深房地产估价报告审查专家，请依据《房地产估价规范》GB/T 50291-2015、《涉执房地产处置司法评估专业技术评审方法（试行）》及相关评审标准，对以下完整报告进行全面审查。
 
 【报告类型】
-{report_type_desc}
+{type_desc}
 
-【关键审查原则】
-1. **上下文连贯性**：段落之间存在逻辑关联，标题段落后的内容通常是解释说明，不应孤立审查
-2. **数据一致性**：同一属性在全文不同位置必须保持一致（面积、价格、日期等）
-3. **逻辑自洽性**：估价假设、计算过程、估价结论应前后呼应、逻辑严密
-4. **专业规范性**：术语、方法、公式使用应符合《房地产估价规范》要求
-5. **完整性要求**：关键要素不应缺失（参照评审标准28项必备内容）
-
-【一、报告结构与要素完整性审查】
-根据评审标准，检查以下必备要素是否存在：
-
-1. 封面要素（估价报告名称、编号、委托人、估价机构、估价师姓名及注册号、出具日期）
-2. 致估价委托人函（估价目的、估价对象、价值时点、价值类型、估价方法、估价结果、机构盖章）
-3. 目录结构（声明、假设和限制条件、估价结果报告、估价技术报告、附件）
-4. 估价师声明（职业道德、专业能力承诺）
-5. 估价假设和限制条件（一般假设、未定事项假设、背离事实假设、不相一致假设、依据不足假设）
-6. 估价结果报告基本内容（委托人、估价机构、估价目的、估价对象、价值时点、价值类型、估价原则、估价依据、估价方法、估价结果、估价师签名、实地查勘期、估价作业期）
-7. 估价技术报告核心内容（估价对象描述与分析、市场背景描述与分析、最高最佳利用分析、估价方法适用性分析、估价测算过程、估价结果确定）
-
-【二、估价对象描述审查】
-1. 实物状况：土地（面积、形状、地形、地势、开发程度）、建筑物（规模、结构、设施、装修、新旧程度）
-2. 权益状况：用途、规划条件、权属、共有情况、用益物权、担保物权、租赁占用、查封等
-3. 区位状况：位置、交通、周围环境、外部配套设施
-4. **数值一致性**：面积、用途等关键属性在不同章节必须一致
-
-【三、估价方法审查（重点）】
-
-**如采用比较法，检查：**
-1. 可比实例选取（不少于3个、来源真实、价格内涵清晰、可比性强）
-2. 建立比较基础（统一财产范围、付款方式、融资条件、税费负担、计价单位）
-3. 交易情况修正（是否存在非正常交易因素）
-4. 市场状况调整（期日修正、价格指数变化）
-5. 区位状况调整（位置、交通、环境等因素修正）
-6. 实物状况调整（面积、结构、装修、新旧等因素修正）
-7. 权益状况调整（用途、使用期限等）
-8. **计算准确性**：各项修正系数相乘计算过程是否正确
-9. **结果合理性**：修正后价格是否在合理范围内
-
-**如采用收益法，检查：**
-1. 租金水平确定（依据充分、内涵清晰）
-2. 空置率和租金损失（合理性）
-3. 运营费用构成（完整性、取值依据）
-4. 净收益计算（前后一致）
-5. 报酬率/资本化率确定（方法正确、依据充分）
-6. 收益期限确定（依据充分）
-
-**如采用成本法，检查：**
-1. 土地取得成本（途径明确、构成完整）
-2. 建设成本（建安工程费、基础设施费、配套设施费、期间税费）
-3. 管理费用、销售费用、投资利息、销售税费
-4. 开发利润（利润率内涵清楚、取值合理）
-5. 折旧分析（维护使用状况描述、成新率确定）
-
-【四、逻辑与计算审查】
-1. **前后一致性**：估价假设、估价方法选用、计算过程、估价结果在不同章节的表述是否一致
-2. **计算准确性**：公式选用是否正确、计算过程是否完整、计算结果是否准确
-3. **参数合理性**：修正系数、折现率、成新率等参数取值是否有依据、是否合理
-4. **结论支撑性**：估价结论是否有充分的论证支撑，是否存在跳跃性结论
-
-【五、市场状况分析审查】
-1. 当地经济社会发展状况描述
-2. 房地产市场总体状况分析
-3. 同类房地产市场详细分析（供需、价格走势）
-4. 分析与估价参数取值的一致性
-
-【六、专业表述审查】
-1. 术语规范性（估价术语是否符合《房地产估价规范》）
-2. 表述准确性（是否存在错别字、语病、表述不清）
-3. 逻辑性（段落之间逻辑关系是否清晰）
-4. 简洁性（是否存在不必要的重复）
-
-【不应报告的情况】
-- 标题段落后紧跟的解释性内容（这是正常结构，除非解释与标题不符）
-- 纯格式问题（缩进、空行、字体等）
-- 主观文风偏好（在不影响专业性的前提下）
-- 不确定的问题（宁缺毋滥，必须有明确依据）
-- 轻微的表述优化建议（除非影响理解或专业性）
-
-【严重问题判定标准】
-参照评审标准，以下情况属于critical级别：
-1. 虚构、编造估价对象状况、可比实例、估价基础数据
-2. 估价目的严重错误、未对应相应行为
-3. 价值时点确定错误
-4. 估价方法选用错误、运用错误
-5. 计算公式选用错误、计算结果错误
-6. 关键数据前后矛盾（如面积、价格在不同位置不一致）
-7. 估价结果不合理偏高或偏低
-
-【报告全文】
-{document_text}
-
-【输出JSON格式】
-{{
-  "errors": [
-    {{
-      "paragraph_index": 问题主要所在的段落索引号（整数）,
-      "related_paragraphs": [相关段落索引号列表（如问题涉及多个段落的对比）],
-      "category": "COMPLETENESS | DATA_CONSISTENCY | CALCULATION | METHOD_APPLICATION | LOGIC | TERMINOLOGY | EXPRESSION",
-      "type": "具体问题类型（如'可比实例不足'、'面积前后不一致'、'修正系数计算错误'）",
-      "severity": "minor | major | critical",
-      "span": "问题所在的原文片段（尽可能精确定位）",
-      "standard_reference": "违反的评审标准条款（如'表1-1第1项：可比实例不少于3个'）",
-      "comment": "问题详细说明（结合上下文说明为何构成问题）",
-      "suggestion": "具体修改建议",
-      "impact": "问题影响（如'影响估价结果准确性'、'违反规范要求'）"
-    }}
-  ],
-  "summary": {{
-    "total_errors": 错误总数,
-    "critical_count": 严重错误数量,
-    "major_count": 重要错误数量,
-    "minor_count": 轻微错误数量,
-    "main_issues": ["主要问题类别列表"],
-    "overall_assessment": "整体评价（一句话）",
-    "compliance_score": "合规性评估（high/medium/low）"
-  }}
-}}
-
-【错误类别说明】
-- COMPLETENESS：要素缺失（关键内容、必备章节缺失）
-- DATA_CONSISTENCY：数据不一致（同一属性在不同位置数值不同）
-- CALCULATION：计算错误（公式错误、计算过程错误、结果错误）
-- METHOD_APPLICATION：方法运用问题（方法选择不当、参数取值不合理、步骤缺失）
-- LOGIC：逻辑问题（前后矛盾、因果关系不成立、结论缺乏支撑）
-- TERMINOLOGY：术语问题（专业术语使用不当、定义错误）
-- EXPRESSION：表述问题（错别字、严重语病、表述不清影响理解）
-
-【严重程度说明】
-- critical：严重错误，导致报告不合格或估价结果严重偏离（扣分≥5分或属于定性评审不合格项）
-- major：重要问题，显著影响报告质量（扣分2-4分）
-- minor：轻微问题，建议修改以提升质量（扣分≤1分）
-
-如果未发现确定的问题，输出：
-{{
-  "errors": [],
-  "summary": {{
-    "total_errors": 0,
-    "critical_count": 0,
-    "major_count": 0,
-    "minor_count": 0,
-    "main_issues": [],
-    "overall_assessment": "未发现明显问题，报告基本符合规范要求",
-    "compliance_score": "high"
-  }}
-}}
 '''
 
-    type_desc = {
-        'shezhi': '涉执报告（司法处置房产评估）\n- 估价目的：为人民法院确定财产处置参考价\n- 评审重点：比较法应用规范性、可比实例真实性、市场状况调整合理性、估价结果客观性',
-        'zujin': '租金报告（租金评估）\n- 估价目的：确定房地产租金水平\n- 评审重点：收益法或比较法应用、租金市场分析、租赁案例可比性、价格单位（元/㎡·年）',
-        'biaozhunfang': '标准房报告（标准房价格评估）\n- 估价目的：建立批量评估基准\n- 评审重点：比较法规范性、市场代表性、参数标准化',
+    # 【新增】如果有提取数据，添加对比审查要求
+    if subject_info:
+        prompt += f'''{subject_info}
+
+【数据一致性审查要点】
+1. 核对上述提取数据与报告原文中多处描述是否一致
+2. 重点检查：地址、面积、价格、楼层、建成年份等关键数据
+3. 注意报告中"致委托人函"、"估价结果"、"技术报告"等不同章节的数据是否前后一致
+4. 如发现不一致，请明确指出：
+   - 提取值（上述系统提取的数据）
+   - 原文值（报告中实际描述的数据）
+   - 所在段落位置
+
+'''
+
+    prompt += '''【关键审查原则】
+1. **数值一致性**（critical级别）
+   - 估价对象面积在不同位置是否一致
+   - 估价结果（单价、总价）在不同位置是否一致
+   - 价值时点、实地查勘日期等关键日期是否一致
+   - 参照评审标准：数据不一致属于严重问题
+
+2. **计算准确性**（critical级别）
+   - 单价 × 面积 ≈ 总价（允许四舍五入误差）
+   - 修正系数计算是否正确
+   - 参照评审标准表1-1第7项：计算错误扣5-8分
+
+3. **逻辑合理性**（major级别）
+   - 描述与数据是否匹配
+   - 因果关系是否成立
+   - 结论是否有依据支撑
+
+4. **表述规范性**（minor级别）
+   - 专业术语使用是否正确
+   - 是否存在错别字、病句
+   - 表述是否清晰准确
+
+【待审查的报告原文】
+
+'''
+
+    # 添加段落
+    for p in paragraphs:
+        idx = p.get('index', '')
+        text = p.get('text', '')
+        if text.strip():
+            prompt += f"[{idx}] {text}\n"
+
+    prompt += '''
+
+【输出要求】
+请以JSON格式输出发现的问题：
+
+```json
+{
+  "errors": [
+    {
+      "paragraph_index": 段落编号,
+      "category": "CONSISTENCY | CALCULATION | LOGIC | EXPRESSION",
+      "type": "具体问题类型",
+      "severity": "critical | major | minor",
+      "span": "问题所在的原文片段（精确引用）",
+      "comment": "问题详细说明",
+      "suggestion": "修改建议",
+      "extracted_value": "系统提取的值（如适用）",
+      "document_value": "原文中的值（如适用）"
     }
+  ],
+  "summary": {
+    "total_errors": 错误总数,
+    "critical_count": 严重问题数,
+    "major_count": 重要问题数,
+    "minor_count": 轻微问题数
+  }
+}
+```
 
-    # 格式化段落，带编号便于定位
-    document_text = "\n".join([
-        f"[段落{p['index']}] {p['text']}"
-        for p in paragraphs
-    ])
+【错误类别说明】
+- CONSISTENCY: 数据不一致（同一数据在不同位置描述不同，或与提取数据不符）
+- CALCULATION: 计算错误（公式应用错误、数值计算错误）
+- LOGIC: 逻辑问题（前后矛盾、因果关系不成立）
+- EXPRESSION: 表述问题（术语错误、错别字、病句）
 
-    return prompt.format(
-        report_type_desc=type_desc.get(report_type, '房地产估价报告'),
-        document_text=document_text
-    )
+【严重程度说明】
+- critical: 严重问题（数据不一致、计算错误，直接影响估价结果）
+- major: 重要问题（逻辑矛盾、关键信息缺失）
+- minor: 轻微问题（表述不规范、个别错别字）
+
+【注意事项】
+- 只报告你非常确定的问题
+- span 必须是原文的精确子串
+- 如果是数据不一致问题，必须填写 extracted_value 和 document_value
+- 如果没有发现问题，输出：{"errors": [], "summary": {"total_errors": 0, "critical_count": 0, "major_count": 0, "minor_count": 0}}
+'''
+
+    return prompt

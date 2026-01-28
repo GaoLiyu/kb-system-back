@@ -425,14 +425,45 @@ class ZujinExtractor:
         """从 subject.floor 解析 current/total（字符串）"""
         if not subject.floor:
             return
+
         text = subject.floor.strip()
-        # m = re.search(r"(\d+)(?:-(\d+))?\s*/\s*(\d+)", text)
-        if text:
-            # cur = m.group(2) or m.group(1)
-            # total = m.group(3)
-            cur = text.split("/")[0]
-            total = text.split("/")[1]
-            self._set_subject_floor(subject, cur, total)
+        if not text:
+            return
+
+        def parse_one(part: str) -> str | None:
+            """把 '1层'/'B1'/'-1层'/'地下1层' 解析成 '1'/'-1' 这种字符串"""
+            if not part:
+                return None
+            p = part.strip()
+
+            # 统一一些写法
+            p = p.replace("Ｆ", "F").replace("／", "/").replace("\\", "/")
+            p = p.replace("层", "").replace("楼", "").replace("F", "").replace("f", "").strip()
+
+            # 地下/负数
+            # 例：地下1、B1、负1
+            if re.search(r"(地下|负)", p) or re.match(r"^[Bb]\s*\d+$", part.strip()):
+                m = re.search(r"(\d+)", p)
+                return f"-{m.group(1)}" if m else None
+
+            # 普通数字（含 -1 这种）
+            m = re.search(r"-?\d+", p)
+            return m.group(0) if m else None
+
+        # 拆分 current/total（有些人会写 '1层/2层' 或 '1/2'）
+        if "/" in text:
+            left, right = text.split("/", 1)
+            cur = parse_one(left)
+            total = parse_one(right) or '0'
+            # 只有一边解析出来也别丢
+            if cur or total:
+                self._set_subject_floor(subject, cur, total)
+            return
+
+        # 没有 / 的情况：只解析当前层
+        cur = parse_one(text)
+        if cur:
+            self._set_subject_floor(subject, cur, '0')
 
     # ----------------- 表格提取 -----------------
 

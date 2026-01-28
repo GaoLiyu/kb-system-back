@@ -118,11 +118,11 @@ class UserRepository:
 
     @staticmethod
     def list_users(
-        org_id: Optional[int] = None,
-        status: Optional[str] = None,
-        keyword: Optional[str] = None,
-        page: int = 1,
-        page_size: int = 20,
+            org_id: Optional[int] = None,
+            status: Optional[str] = None,
+            keyword: Optional[str] = None,
+            page: int = 1,
+            page_size: int = 20,
     ) -> tuple[List[User], int]:
         """查询用户列表"""
         with pg_cursor(commit=False) as cursor:
@@ -161,11 +161,16 @@ class UserRepository:
                 LIMIT %s OFFSET %s
             """, params + [page_size, offset])
 
+            # 【修复】先保存结果和列描述
+            rows = cursor.fetchall()
+            description = cursor.description  # ← 保存列描述
+
             users = []
-            for row in cursor.fetchall():
-                user = UserRepository._row_to_user(row, cursor.description)
-                user.roles = UserRepository._get_user_roles(cursor, user.id)
-                users.append(user)
+            for row in rows:
+                user = UserRepository._row_to_user(row, description)  # ← 使用保存的描述
+                if user and user.id:  # 防御性检查
+                    user.roles = UserRepository._get_user_roles(cursor, user.id)
+                    users.append(user)
 
             return users, total
 
@@ -182,6 +187,7 @@ class UserRepository:
     ) -> User:
         """创建用户"""
         password_hash = hash_password(password)
+        user_id = None
 
         with pg_cursor(commit=True) as cursor:
             # 插入用户
@@ -200,7 +206,7 @@ class UserRepository:
                         ON CONFLICT (user_id, role_code) DO NOTHING
                     """, (user_id, role))
 
-            return UserRepository.get_by_id(user_id)
+        return UserRepository.get_by_id(user_id)
 
     @staticmethod
     def update(

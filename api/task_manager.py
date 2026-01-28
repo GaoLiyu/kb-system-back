@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, List, Any
 
 from knowledge_base.db_connection import pg_cursor
+from knowledge_base.kb_manager_db import result_to_dict
 
 
 # 线程池(3个任务)
@@ -329,7 +330,7 @@ def run_review_task(task_id: str, system, settings):
                         if item.type == 'paragraph' and item.text
                     ]
 
-                    llm_result = system.reviewer.llm_reviewer.review_full_document(paragraphs, report_type)
+                    llm_result = system.reviewer.llm_reviewer.review_full_document(paragraphs, report_type, result_to_dict(extraction_result)['subject'])
                     llm_issues = [
                         {
                             "type": issue.type,

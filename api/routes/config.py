@@ -253,11 +253,11 @@ ROLE_DEFINITIONS = {
         "name": "审查员",
         "description": "可以提交和查看审查任务",
         "permissions": [
-            "kb:view",
-            "search:case",
+            # "kb:view",
+            # "search:case",
             "review:submit", "review:view", "review:export",
-            "generate:suggest",
-            "stats:view",
+            # "generate:suggest",
+            # "stats:view",
         ],
     },
     "editor": {
@@ -266,7 +266,7 @@ ROLE_DEFINITIONS = {
         "permissions": [
             "kb:view", "kb:upload",
             "search:case",
-            "review:view",
+            # "review:view",
             "generate:suggest",
             "stats:view",
         ],
@@ -277,7 +277,7 @@ ROLE_DEFINITIONS = {
         "permissions": [
             "kb:view",
             "search:case",
-            "review:view",
+            # "review:view",
             "stats:view",
         ],
     },
