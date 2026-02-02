@@ -4,6 +4,138 @@ LLM审查提示词
 针对房地产估价报告的语义审查
 """
 
+# 基础字段映射
+SUBJECT_FIELD_MAP = {
+    # 基础信息
+    'address': '估价对象地址',
+    'building_area': '建筑面积(㎡)',
+    'rental_area': '租赁面积(㎡)',
+    'area': '面积(㎡)',
+    'unit_price': '评估单价(元/㎡)',
+    'total_price': '评估总价(元)',
+    'monthly_rent': '月租金(元)',
+    'annual_rent': '年租金(元)',
+    'usage': '用途',
+    'plan_usage': '规划用途',
+    'actual_usage': '实际用途',
+    # 产权信息
+    'cert_no': '不动产权证号',
+    'owner': '权利人',
+    'co_owner': '共有权人',
+    'ownership_type': '产权类型',
+    'cart_type': '产权类型',
+    # 建筑信息
+    'structure': '建筑结构',
+    'floor': '楼层',
+    'current_floor': '所在楼层',
+    'total_floor': '总层数',
+    'build_year': '建成年份',
+    'orientation': '朝向',
+    'decoration': '装修状况',
+    'height': '层高(米)',
+    'east_to_west': '东西向',
+    # 区位信息
+    'district': '所属区域',
+    'street': '所属街道/镇',
+    'location': '坐落位置',
+    'location_code': '位置编码',
+    'community': '小区名称',
+    # 土地信息
+    'land_type': '土地类型',
+    'land_use_type': '土地用途',
+    'land_area': '土地面积(㎡)',
+    'land_end_date': '土地使用权终止日期',
+    'end_date': '使用权到期日',
+    # 估价信息
+    'value_date': '价值时点',
+    'appraisal_purpose': '估价目的',
+    'transaction_date': '交易日期',
+    # 标准房特有
+    'avg_listing_price': '片区二手房挂牌均价(元/㎡)',
+    'structure_factor': '结构修正系数',
+    'floor_factor': '楼层修正系数',
+    'orientation_factor': '朝向修正系数',
+    'age_factor': '成新修正系数',
+    'east_to_west_factor': '东西向修正系数',
+    'physical_composite': '实体状况综合系数',
+    'location_factor': '区位修正系数',
+    'rights_factor': '权益修正系数',
+}
+
+# 因素名称映射（区位、实物、权益因素）
+FACTOR_NAME_MAP = {
+    # ========== 区位因素 ==========
+    'prosperity': '繁华程度',
+    'traffic': '交通条件',
+    'facilities': '配套设施',
+    'parking': '停车条件',
+    'location': '地理位置',
+    'environment': '周边环境',
+    'distance_to_center': '距中心距离',
+    'distance_to_station': '距车站距离',
+    'commercial_atmosphere': '商业氛围',
+    'population_density': '人口密度',
+    'noise': '噪音状况',
+    'air_quality': '空气质量',
+    'view': '景观条件',
+    'security': '治安状况',
+    # ========== 实物因素 ==========
+    'terrain': '地形地势',
+    'soil': '土质条件',
+    'area': '面积',
+    'layout': '户型/格局',
+    'age': '建筑年代',
+    'decoration': '装修状况',
+    'structure': '建筑结构',
+    'equipment': '设备设施',
+    'floor': '楼层',
+    'orientation': '朝向',
+    'ventilation': '通风采光',
+    'height': '层高',
+    'width': '开间',
+    'depth': '进深',
+    'frontage': '临街状况',
+    'frontage_width': '临街宽度',
+    'frontage_depth': '临街深度',
+    'utilization': '利用状况',
+    'maintenance': '维护状况',
+    'appearance': '外观状况',
+    'quality': '建筑质量',
+    'new_degree': '成新度',
+    # 中文键名（有些报告直接用中文）
+    '利用状况': '利用状况',
+    '临街状况': '临街状况',
+    '临街宽度': '临街宽度',
+    '临街深度': '临街深度',
+    '新旧程度': '新旧程度',
+    '建筑规模': '建筑规模',
+    '平面布置': '平面布置',
+    '设施设备': '设施设备',
+    '装饰装修': '装饰装修',
+    '工程质量': '工程质量',
+    '外观': '外观',
+    '内部装修': '内部装修',
+    # ========== 权益因素 ==========
+    'registration': '产权登记',
+    'other_rights': '他项权利',
+    'restricted_rights': '限制权利',
+    'land_remaining_term': '土地剩余年限',
+    'other_factors': '其他因素',
+    'lease_status': '租约状况',
+    'lease_term': '租约期限',
+    'rent_level': '租金水平',
+    'tenant_quality': '租户质量',
+    'vacancy_rate': '空置率',
+    'property_rights': '产权状况',
+    'encumbrance': '抵押状况',
+    'litigation': '诉讼状况',
+    # 中文键名
+    '土地使用年限': '土地使用年限',
+    '规划限制': '规划限制',
+    '相邻关系': '相邻关系',
+    '使用管制': '使用管制',
+}
+
 def build_paragraph_review_prompt(paragraphs: list, report_type: str = "shezhi") -> str:
     """
     构建段落审查提示词（基于评审标准-外在质量部分）
@@ -766,20 +898,27 @@ def build_factor_review_prompt(factors_data: list) -> str:
 # ============================================================================
 
 # 字段名 -> 中文名映射（覆盖所有报告类型的 subject 字段）
+# 基础字段映射
 SUBJECT_FIELD_MAP = {
-    # ========== 基础信息 ==========
+    # 基础信息
     'address': '估价对象地址',
     'building_area': '建筑面积(㎡)',
+    'rental_area': '租赁面积(㎡)',
+    'area': '面积(㎡)',
     'unit_price': '评估单价(元/㎡)',
     'total_price': '评估总价(元)',
-
-    # ========== 产权信息 ==========
+    'monthly_rent': '月租金(元)',
+    'annual_rent': '年租金(元)',
+    'usage': '用途',
+    'plan_usage': '规划用途',
+    'actual_usage': '实际用途',
+    # 产权信息
     'cert_no': '不动产权证号',
     'owner': '权利人',
-    'usage': '规划用途',
-    'plan_usage': '规划用途',
-
-    # ========== 建筑信息 ==========
+    'co_owner': '共有权人',
+    'ownership_type': '产权类型',
+    'cart_type': '产权类型',
+    # 建筑信息
     'structure': '建筑结构',
     'floor': '楼层',
     'current_floor': '所在楼层',
@@ -787,40 +926,108 @@ SUBJECT_FIELD_MAP = {
     'build_year': '建成年份',
     'orientation': '朝向',
     'decoration': '装修状况',
-
-    # ========== 区位信息 ==========
+    'height': '层高(米)',
+    'east_to_west': '东西向',
+    # 区位信息
     'district': '所属区域',
     'street': '所属街道/镇',
-    'location_code': '区位代码',
-
-    # ========== 土地信息 ==========
+    'location': '坐落位置',
+    'location_code': '位置编码',
+    'community': '小区名称',
+    # 土地信息
     'land_type': '土地类型',
     'land_use_type': '土地用途',
     'land_area': '土地面积(㎡)',
     'land_end_date': '土地使用权终止日期',
-    'end_date': '土地使用权终止日期',
-
-    # ========== 估价信息 ==========
+    'end_date': '使用权到期日',
+    # 估价信息
     'value_date': '价值时点',
     'appraisal_purpose': '估价目的',
     'transaction_date': '交易日期',
-
-    # ========== 标准房特有 ==========
-    'cart_type': '产权类型',
-    'east_to_west': '东西至',
-    'appendages': '附属物',
+    # 标准房特有
     'avg_listing_price': '片区二手房挂牌均价(元/㎡)',
-
-    # ========== 修正系数（标准房）==========
     'structure_factor': '结构修正系数',
     'floor_factor': '楼层修正系数',
     'orientation_factor': '朝向修正系数',
     'age_factor': '成新修正系数',
-    'east_to_west_factor': '东西至修正系数',
+    'east_to_west_factor': '东西向修正系数',
     'physical_composite': '实体状况综合系数',
+    'location_factor': '区位修正系数',
+    'rights_factor': '权益修正系数',
+}
 
-    # ========== 租金特有 ==========
-    'price_unit': '价格单位',
+# 因素名称映射（区位、实物、权益因素）
+FACTOR_NAME_MAP = {
+    # ========== 区位因素 ==========
+    'prosperity': '繁华程度',
+    'traffic': '交通条件',
+    'facilities': '配套设施',
+    'parking': '停车条件',
+    'location': '地理位置',
+    'environment': '周边环境',
+    'distance_to_center': '距中心距离',
+    'distance_to_station': '距车站距离',
+    'commercial_atmosphere': '商业氛围',
+    'population_density': '人口密度',
+    'noise': '噪音状况',
+    'air_quality': '空气质量',
+    'view': '景观条件',
+    'security': '治安状况',
+    # ========== 实物因素 ==========
+    'terrain': '地形地势',
+    'soil': '土质条件',
+    'area': '面积',
+    'layout': '户型/格局',
+    'age': '建筑年代',
+    'decoration': '装修状况',
+    'structure': '建筑结构',
+    'equipment': '设备设施',
+    'floor': '楼层',
+    'orientation': '朝向',
+    'ventilation': '通风采光',
+    'height': '层高',
+    'width': '开间',
+    'depth': '进深',
+    'frontage': '临街状况',
+    'frontage_width': '临街宽度',
+    'frontage_depth': '临街深度',
+    'utilization': '利用状况',
+    'maintenance': '维护状况',
+    'appearance': '外观状况',
+    'quality': '建筑质量',
+    'new_degree': '成新度',
+    # 中文键名（有些报告直接用中文）
+    '利用状况': '利用状况',
+    '临街状况': '临街状况',
+    '临街宽度': '临街宽度',
+    '临街深度': '临街深度',
+    '新旧程度': '新旧程度',
+    '建筑规模': '建筑规模',
+    '平面布置': '平面布置',
+    '设施设备': '设施设备',
+    '装饰装修': '装饰装修',
+    '工程质量': '工程质量',
+    '外观': '外观',
+    '内部装修': '内部装修',
+    # ========== 权益因素 ==========
+    'registration': '产权登记',
+    'other_rights': '他项权利',
+    'restricted_rights': '限制权利',
+    'land_remaining_term': '土地剩余年限',
+    'other_factors': '其他因素',
+    'lease_status': '租约状况',
+    'lease_term': '租约期限',
+    'rent_level': '租金水平',
+    'tenant_quality': '租户质量',
+    'vacancy_rate': '空置率',
+    'property_rights': '产权状况',
+    'encumbrance': '抵押状况',
+    'litigation': '诉讼状况',
+    # 中文键名
+    '土地使用年限': '土地使用年限',
+    '规划限制': '规划限制',
+    '相邻关系': '相邻关系',
+    '使用管制': '使用管制',
 }
 
 # 报告类型中文名
@@ -901,13 +1108,6 @@ def _format_value(val, field_name: str = "") -> str:
 def format_subject_for_prompt(subject_data: dict, report_type: str = None) -> str:
     """
     将 subject 数据格式化为 prompt 中的对比信息
-
-    Args:
-        subject_data: 提取的 subject 数据字典
-        report_type: 报告类型
-
-    Returns:
-        格式化后的文本
     """
     if not subject_data:
         return ""
@@ -917,42 +1117,58 @@ def format_subject_for_prompt(subject_data: dict, report_type: str = None) -> st
     lines.append("（请与报告原文中的描述进行核对，检查是否存在不一致）")
     lines.append("")
 
-    # 按类别组织字段
-    categories = [
-        ('基础信息', ['address', 'building_area', 'unit_price', 'total_price', 'usage', 'plan_usage']),
-        ('产权信息', ['cert_no', 'owner']),
-        ('建筑信息', ['structure', 'floor', 'current_floor', 'total_floor', 'build_year', 'orientation', 'decoration']),
-        ('区位信息', ['district', 'street', 'location_code']),
-        ('土地信息', ['land_type', 'land_use_type', 'land_area', 'land_end_date', 'end_date']),
-        ('估价信息', ['value_date', 'appraisal_purpose', 'transaction_date']),
-    ]
+    # 根据报告类型定义字段分类
+    if report_type == 'zujin':
+        categories = [
+            ('基础信息', ['address', 'rental_area', 'building_area', 'unit_price', 'total_price',
+                          'monthly_rent', 'annual_rent', 'usage', 'plan_usage', 'actual_usage']),
+            ('产权信息', ['cert_no', 'owner', 'co_owner']),
+            ('建筑信息', ['structure', 'floor', 'current_floor', 'total_floor', 'build_year',
+                          'orientation', 'decoration', 'height']),
+            ('区位信息', ['district', 'street', 'location', 'community']),
+            ('土地信息', ['land_type', 'land_use_type', 'land_area', 'land_end_date', 'end_date']),
+            ('估价信息', ['value_date', 'appraisal_purpose']),
+        ]
+    elif report_type == 'biaozhunfang':
+        categories = [
+            ('基础信息', ['address', 'building_area', 'unit_price', 'total_price', 'usage']),
+            ('产权信息', ['cert_no', 'owner', 'cart_type']),
+            ('建筑信息', ['structure', 'floor', 'current_floor', 'total_floor', 'build_year',
+                          'orientation', 'decoration', 'east_to_west']),
+            ('区位信息', ['district', 'street', 'location']),
+            ('土地信息', ['land_type', 'land_area', 'land_end_date']),
+            ('估价信息', ['value_date', 'appraisal_purpose']),
+            ('修正系数', ['avg_listing_price', 'structure_factor', 'floor_factor',
+                          'orientation_factor', 'age_factor', 'east_to_west_factor',
+                          'physical_composite', 'location_factor', 'rights_factor']),
+        ]
+    else:  # shezhi 或默认
+        categories = [
+            ('基础信息', ['address', 'building_area', 'unit_price', 'total_price', 'usage', 'plan_usage']),
+            ('产权信息', ['cert_no', 'owner', 'co_owner']),
+            ('建筑信息', ['structure', 'floor', 'current_floor', 'total_floor', 'build_year',
+                          'orientation', 'decoration']),
+            ('区位信息', ['district', 'street', 'location']),
+            ('土地信息', ['land_type', 'land_use_type', 'land_area', 'land_end_date', 'end_date']),
+            ('估价信息', ['value_date', 'appraisal_purpose', 'transaction_date']),
+        ]
 
-    # 标准房特有字段
-    if report_type == 'biaozhunfang':
-        categories.append(('标准房信息', [
-            'cart_type', 'east_to_west', 'appendages', 'avg_listing_price',
-            'structure_factor', 'floor_factor', 'orientation_factor',
-            'age_factor', 'east_to_west_factor', 'physical_composite'
-        ]))
-
+    # 输出基础字段
     for category_name, fields in categories:
         category_items = []
-
         for field in fields:
             if field in subject_data:
                 val = subject_data[field]
                 formatted = _format_value(val, field)
-
-                if formatted:  # 只显示非空值
+                if formatted:
                     cn_name = SUBJECT_FIELD_MAP.get(field, field)
                     category_items.append(f"  • {cn_name}: {formatted}")
-
         if category_items:
             lines.append(f"▶ {category_name}:")
             lines.extend(category_items)
             lines.append("")
 
-    # 处理因素数据（涉执/租金报告）
+    # 处理因素数据
     for factor_type, factor_cn in [
         ('location_factors', '区位因素'),
         ('physical_factors', '实物因素'),
@@ -962,22 +1178,29 @@ def format_subject_for_prompt(subject_data: dict, report_type: str = None) -> st
             factors = subject_data[factor_type]
             if isinstance(factors, dict) and factors:
                 lines.append(f"▶ {factor_cn}:")
-                for factor_name, factor_data in factors.items():
+                for factor_key, factor_data in factors.items():
+                    # 【关键】获取中文名称
+                    factor_name = FACTOR_NAME_MAP.get(factor_key, factor_key)
+
                     if isinstance(factor_data, dict):
                         desc = factor_data.get('description', '')
                         level = factor_data.get('level', '')
                         index = factor_data.get('index', '')
-
                         if desc or level or index:
                             parts = []
                             if desc:
-                                parts.append(f"描述=\"{desc}\"")
+                                parts.append(f'描述="{desc}"')
                             if level:
-                                parts.append(f"等级=\"{level}\"")
-                            if index:
-                                parts.append(f"指数={index}")
+                                parts.append(f'等级="{level}"')
+                            if index is not None and index != '':
+                                parts.append(f'指数={index}')
                             lines.append(f"  • {factor_name}: {', '.join(parts)}")
+                    else:
+                        lines.append(f"  • {factor_name}: {factor_data}")
                 lines.append("")
+
+    while lines and lines[-1] == "":
+        lines.pop()
 
     return "\n".join(lines)
 

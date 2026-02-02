@@ -257,7 +257,7 @@ ROLE_DEFINITIONS = {
             # "search:case",
             "review:submit", "review:view", "review:export",
             # "generate:suggest",
-            # "stats:view",
+            "stats:view",
         ],
     },
     "editor": {

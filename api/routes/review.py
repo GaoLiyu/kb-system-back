@@ -18,6 +18,7 @@ from ..config import settings
 from .kb import get_system
 from ..iam_client import UserContext
 from ..task_manager import ReviewTaskManager, submit_review_task
+from ..auth import get_current_user, get_data_scope, require_roles, DataScope
 
 router = APIRouter(prefix="/review", tags=["审查"])
 
@@ -30,7 +31,7 @@ router = APIRouter(prefix="/review", tags=["审查"])
 async def submit_review(
     file: UploadFile = File(...),
     mode: str = Query("full", description="审查模式: quick/full"),
-    user: UserContext = Depends(RequireRoles("admin", "reviewer"))
+    user: UserContext = Depends(require_roles("reviewer"))
 ):
     """
     提交异步审查任务
@@ -63,6 +64,8 @@ async def submit_review(
         filename=file.filename,
         file_path=save_path,
         review_mode=mode,
+        user_id=user.user_id,
+        org_id=user.org_id,
     )
 
     # 提交到线程池
@@ -147,13 +150,13 @@ async def list_tasks(
     status: str = Query(None, description="筛选状态: pending/running/completed/failed"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: UserContext = Depends(RequireRoles("viewer"))
+    scope: DataScope = Depends(get_data_scope),
 ):
     """
     获取审查任务列表
     """
-    tasks = ReviewTaskManager.list_tasks(status=status, limit=limit, offset=offset)
-    stats = ReviewTaskManager.get_stats()
+    tasks = ReviewTaskManager.list_tasks(status=status, limit=limit, offset=offset, user_id=scope.user_id, org_id=scope.org_id, scope=scope.scope_type)
+    stats = ReviewTaskManager.get_stats(user_id=scope.user_id, org_id=scope.org_id, scope=scope.scope_type)
 
     return {
         "success": True,
@@ -165,16 +168,28 @@ async def list_tasks(
 @router.delete("/task/{task_id}", summary="删除任务")
 async def delete_task(
     task_id: str,
-    user: UserContext = Depends(RequireRoles("admin", "reviewer"))
+    user: UserContext = Depends(get_current_user),
+    scope: DataScope = Depends(get_data_scope),
 ):
     """
     删除审查任务
     """
-    success = ReviewTaskManager.delete_task(task_id)
-    if not success:
+    task = ReviewTaskManager.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    return {"success": True, "message": "删除成功"}
+    if scope.scope_type == 'SELF':
+        # 普通用户只能删除自己的任务
+        if task.get('create_by') != user.user_id:
+            raise HTTPException(status_code=403, detail="只能删除自己的任务")
+    elif scope.scope_type == 'ORG':
+        # 管理员只能删除本组织的任务
+        if task.get('org_id') != user.org_id:
+            raise HTTPException(status_code=403, detail="只能删除本组织的任务")
+
+    success = ReviewTaskManager.delete_task(task_id)
+
+    return {"success": success, "message": "删除成功"}
 
 
 @router.post("/task/{task_id}/export", summary="导出任务结果")

@@ -23,7 +23,7 @@ class ReviewTaskManager:
     """审查任务管理器"""
 
     @staticmethod
-    def create_task(filename: str, file_path: str, review_mode: str = "full") -> str:
+    def create_task(filename: str, file_path: str, review_mode: str = "full", user_id: str = None, org_id: str = None) -> str:
         """
         创建审查任务
 
@@ -31,6 +31,8 @@ class ReviewTaskManager:
             filename: 文件名
             file_path: 文件保存路径
             review_mode: 审查模式 (quick/full/detail)
+            user_id: 用户Id
+            org_id: 组织Id
 
         Returns:
             task_id
@@ -39,9 +41,10 @@ class ReviewTaskManager:
 
         with pg_cursor() as cursor:
             cursor.execute("""
-                INSERT INTO review_tasks (task_id, filename, file_path, review_mode, status, create_time)
-                VALUES (%s, %s, %s, %s, 'pending', %s)
-            """, (task_id, filename, file_path, review_mode, datetime.now()))
+               INSERT INTO review_tasks
+               (task_id, filename, file_path, review_mode, status, create_by, org_id, create_time)
+               VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s)
+           """, (task_id, filename, file_path, review_mode, user_id, org_id, datetime.now()))
 
         return task_id
 
@@ -117,64 +120,111 @@ class ReviewTaskManager:
             }
 
     @staticmethod
-    def list_tasks(status: str = None, limit: int = 50, offset: int = 0) -> List[Dict]:
-        """获取任务列表"""
-        with pg_cursor(commit=False) as cursor:
-            if status:
-                cursor.execute("""
-                               SELECT task_id, filename, review_mode, status,
-                                      overall_risk, issue_count, error, create_time, end_time
-                               FROM review_tasks
-                               WHERE status = %s
-                               ORDER BY create_time DESC
-                               LIMIT %s OFFSET %s
-                               """, (status, limit, offset))
-            else:
-                cursor.execute("""
-                               SELECT task_id, filename, review_mode, status,
-                                      overall_risk, issue_count, error, create_time, end_time
-                               FROM review_tasks
-                               ORDER BY create_time DESC
-                               LIMIT %s OFFSET %s
-                               """, (limit, offset))
+    def list_tasks(status: str = None, limit: int = 50, offset: int = 0, user_id: str = None, org_id: str = None, scope: str = "SELF") -> List[Dict]:
+        """
+        获取任务列表
 
-            rows = cursor.fetchall()
-            return [
-                {
+        Args:
+            status: 状态过滤
+            limit: 数量限制
+            offset: 偏移量
+            user_id: 用户ID（SELF模式）
+            org_id: 组织ID（ORG模式）
+            scope: 数据范围
+                - ALL: 所有数据（超级管理员）
+                - ORG: 本组织数据（管理员）
+                - SELF: 仅自己的数据（普通用户）
+        """
+        with pg_cursor(commit=False) as cursor:
+            conditions = []
+            params = []
+
+            # 【新增】数据范围过滤
+            if scope == 'SELF' and user_id:
+                conditions.append("create_by = %s")
+                params.append(user_id)
+            elif scope == 'ORG' and org_id:
+                conditions.append("org_id = %s")
+                params.append(org_id)
+            # scope == 'ALL' 不加过滤
+
+            if status:
+                conditions.append("status = %s")
+                params.append(status)
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            cursor.execute(f"""
+                SELECT task_id, filename, file_path, review_mode, status,
+                       overall_risk, issue_count, validation_count, llm_count,
+                       result, error, create_time, start_time, end_time,
+                       create_by, org_id
+                FROM review_tasks
+                WHERE {where_clause}
+                ORDER BY create_time DESC
+                LIMIT %s OFFSET %s
+            """, params + [limit, offset])
+
+            tasks = []
+            for row in cursor.fetchall():
+                tasks.append({
                     "task_id": row[0],
                     "filename": row[1],
-                    "review_mode": row[2],
-                    "status": row[3],
-                    "overall_risk": row[4],
-                    "issue_count": row[5],
-                    "error": row[6],
-                    "create_time": row[7].isoformat() if row[7] else None,
-                    "end_time": row[8].isoformat() if row[8] else None,
-                }
-                for row in rows
-            ]
+                    "file_path": row[2],
+                    "review_mode": row[3],
+                    "status": row[4],
+                    "overall_risk": row[5],
+                    "issue_count": row[6],
+                    "validation_count": row[7],
+                    "llm_count": row[8],
+                    "result": row[9],
+                    "error": row[10],
+                    "create_time": row[11].isoformat() if row[11] else None,
+                    "start_time": row[12].isoformat() if row[12] else None,
+                    "end_time": row[13].isoformat() if row[13] else None,
+                    "create_by": row[14],
+                    "org_id": row[15],
+                })
+
+            return tasks
 
     @staticmethod
-    def get_stats() -> Dict:
-        """获取任务统计"""
+    def get_stats(
+            user_id: str = None,
+            org_id: str = None,
+            scope: str = 'SELF',
+    ) -> Dict:
+        """获取统计（支持数据范围）"""
         with pg_cursor(commit=False) as cursor:
-            # 按状态统计
-            cursor.execute("""
-                           SELECT status, COUNT(*) FROM review_tasks GROUP BY status
-                           """)
-            by_status = {row[0]: row[1] for row in cursor.fetchall()}
+            conditions = []
+            params = []
 
-            # 按风险统计（已完成的）
-            cursor.execute("""
-                           SELECT overall_risk, COUNT(*) FROM review_tasks
-                           WHERE status = 'completed' AND overall_risk IS NOT NULL
-                           GROUP BY overall_risk
-                           """)
-            by_risk = {row[0]: row[1] for row in cursor.fetchall()}
+            if scope == 'SELF' and user_id:
+                conditions.append("create_by = %s")
+                params.append(user_id)
+            elif scope == 'ORG' and org_id:
+                conditions.append("org_id = %s")
+                params.append(org_id)
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
 
             # 总数
-            cursor.execute("SELECT COUNT(*) FROM review_tasks")
+            cursor.execute(f"SELECT COUNT(*) FROM review_tasks WHERE {where_clause}", params)
             total = cursor.fetchone()[0]
+
+            # 按状态统计
+            cursor.execute(f"""
+                    SELECT status, COUNT(*) FROM review_tasks 
+                    WHERE {where_clause} GROUP BY status
+                """, params)
+            by_status = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # 按风险统计
+            cursor.execute(f"""
+                    SELECT overall_risk, COUNT(*) FROM review_tasks 
+                    WHERE {where_clause} AND overall_risk IS NOT NULL GROUP BY overall_risk
+                """, params)
+            by_risk = {row[0]: row[1] for row in cursor.fetchall()}
 
             return {
                 "total": total,
