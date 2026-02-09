@@ -1230,6 +1230,11 @@ def build_full_document_review_prompt(
             report_type
         )
 
+        if extraction_data.get('multi_subjects'):
+            subject_info += f"\n\n⚠️ 本报告包含{len(extraction_data['multi_subjects'])}个估价对象："
+            for i, ms in enumerate(extraction_data['multi_subjects']):
+                subject_info += f"\n  {i + 1}. {ms['address']} | 面积={ms['area']}㎡ | 总价={ms['total_price']}元"
+
     prompt = f'''你是一位资深房地产估价报告审查专家，请依据《房地产估价规范》GB/T 50291-2015、《涉执房地产处置司法评估专业技术评审方法（试行）》及相关评审标准，对以下完整报告进行全面审查。
 
 【报告类型】

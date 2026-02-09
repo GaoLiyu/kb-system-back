@@ -14,7 +14,7 @@ from .table_utils import (
     find_column_indices, find_rows_by_labels, find_row_by_label,
     row_to_text_list, get_row_cells_simple, extract_property_rights_generic
 )
-from .text_utils import parse_number, normalize_label, extract_year, parse_floor
+from .text_utils import parse_number, normalize_label, extract_year, parse_floor, parse_area, infer_floors_from_rooms
 
 
 @dataclass
@@ -97,6 +97,11 @@ class ZujinExtractionResult:
     final_total_price: LocatedValue = field(default_factory=LocatedValue)  # 租金总价
     floor_factor: float = 1.0
 
+    # 多对象明细
+    subjects: List[Subject] = field(default_factory=list)
+    rent_unit: str = 'year' # 'year' or 'month' or 'day'
+    price_in_wan: bool = False # 是否为万
+
     type: str = "zujin"
     stats: ExtractionStats = field(default_factory=ExtractionStats)
 
@@ -168,7 +173,8 @@ class ZujinExtractor(BaseExtractor):
 
         # 4. 提取各表格数据
         self._extract_result_summary(result)
-        print(f"   ✓ 结果汇总: {result.subject.address.value}")
+        addr_display = result.subject.address.value if result.subject.address and result.subject.address.value else '未提取'
+        print(f"   ✓ 结果汇总: {addr_display} ({len(result.subjects)}个估价对象, 单位={result.rent_unit})")
 
         self._extract_property_rights(result)
         print(f"   ✓ 权属信息")
@@ -228,43 +234,273 @@ class ZujinExtractor(BaseExtractor):
                 self.TABLE_CORRECTION = min(base + 4, len(self.tables) - 1)
 
     def _extract_result_summary(self, result: ZujinExtractionResult):
-        """提取结果汇总表"""
+        """提取结果汇总表（支持多估价对象）"""
         if self.TABLE_RESULT_SUMMARY >= len(self.tables):
             return
 
         table = self.tables[self.TABLE_RESULT_SUMMARY]
         table_idx = self.TABLE_RESULT_SUMMARY
 
-        # 通常第二行是数据行
+        if len(table.rows) < 2:
+            return
+
+        # ============================================================
+        # 第一步：从表头动态定位各列
+        # ============================================================
+        header_cells = row_to_text_list(table.rows[0])
+        col_map = {
+            'address': -1,
+            'floor': -1,
+            'area': -1,
+            'unit_price': -1,
+            'total_price': -1,
+        }
+
+        for col_idx, cell_text in enumerate(header_cells):
+            text = normalize_label(cell_text)
+            if '坐落' in text or '地址' in text:
+                col_map['address'] = col_idx
+            elif '楼层' in text or '层次' in text:
+                col_map['floor'] = col_idx
+            elif '面积' in text:
+                col_map['area'] = col_idx
+            elif '单价' in text:
+                col_map['unit_price'] = col_idx
+                # 从表头识别租金单位: 元/㎡·日、元/㎡·月、元/㎡·年
+                if '日' in cell_text:
+                    result.rent_unit = 'day'
+                elif '月' in cell_text:
+                    result.rent_unit = 'month'
+                else:
+                    result.rent_unit = 'year'
+            elif '总价' in text:
+                col_map['total_price'] = col_idx
+                # 从表头识别万元单位
+                if '万元' in cell_text:
+                    result.price_in_wan = True
+
+        # 如果表头没有"楼层"列（老格式4列表），回退到硬编码
+        if col_map['area'] < 0:
+            # 没找到面积列，说明表头识别失败，用老逻辑兼容
+            # 老格式: 坐落(0) | 面积(1) | 单价(2) | 总价(3)
+            col_map = {'address': 0, 'floor': -1, 'area': 1,
+                       'unit_price': 2, 'total_price': 3}
+
+        print(f"   汇总表列映射: {col_map}, 租金单位={result.rent_unit}, 万元={result.price_in_wan}")
+
+        # ============================================================
+        # 第二步：遍历数据行，收集所有估价对象
+        # ============================================================
+        summary_row = None  # 合计行
+
+        for row_idx in range(1, len(table.rows)):
+            cells = row_to_text_list(table.rows[row_idx])
+
+            # 判断是否合计行
+            row_text_joined = ''.join(cells)
+            if '合计' in row_text_joined or '小计' in row_text_joined:
+                summary_row = (row_idx, cells)
+                continue
+
+            # 判断是否空行（地址列为空）
+            addr_col = col_map['address']
+            if addr_col >= 0 and addr_col < len(cells):
+                addr_text = cells[addr_col].strip()
+                if not addr_text:
+                    continue
+            else:
+                continue
+
+            # 创建一个估价对象
+            sub = Subject()
+
+            # 地址
+            if addr_col >= 0 and addr_col < len(cells):
+                sub.address = self.create_located_value(
+                    cells[addr_col], table_idx, row_idx, addr_col, cells[addr_col]
+                )
+
+            # 楼层
+            floor_col = col_map['floor']
+            if floor_col >= 0 and floor_col < len(cells) and cells[floor_col].strip():
+                sub.floor = cells[floor_col].strip()
+
+            # 面积
+            area_col = col_map['area']
+            if area_col >= 0 and area_col < len(cells):
+                raw_area_text = cells[area_col]
+                area_value, area_unit = parse_area(raw_area_text)
+                if area_value:
+                    value = area_value  # 已经统一为平方米
+                    if area_unit == 'mu':
+                        print(f"     ⚠️ 面积使用亩单位: {raw_area_text} → {value:.2f}㎡")
+                else:
+                    value = self.safe_extract_number(
+                        raw_area_text, f'subject_{row_idx}_area',
+                        Position(table_idx, row_idx, area_col)
+                    )
+                if value:
+                    sub.building_area = self.create_located_value(
+                        value, table_idx, row_idx, area_col, cells[area_col]
+                    )
+
+            # 单价
+            up_col = col_map['unit_price']
+            if up_col >= 0 and up_col < len(cells):
+                value = self.safe_extract_number(
+                    cells[up_col], f'subject_{row_idx}_unit_price',
+                    Position(table_idx, row_idx, up_col)
+                )
+                if value:
+                    sub.unit_price = self.create_located_value(
+                        value, table_idx, row_idx, up_col, cells[up_col]
+                    )
+
+            # 总价
+            tp_col = col_map['total_price']
+            if tp_col >= 0 and tp_col < len(cells):
+                raw_text = cells[tp_col]
+                value = self.safe_extract_number(
+                    raw_text, f'subject_{row_idx}_total_price',
+                    Position(table_idx, row_idx, tp_col)
+                )
+                if value:
+                    # 万元转换
+                    if result.price_in_wan:
+                        value = value * 10000
+                    sub.total_price = self.create_located_value(
+                        value, table_idx, row_idx, tp_col, raw_text
+                    )
+
+            result.subjects.append(sub)
+
+        # ============================================================
+        # 第三步：填充 result.subject（主估价对象 / 合计）
+        # ============================================================
+        if len(result.subjects) == 1:
+            # 只有一个估价对象，直接作为主估价对象
+            only = result.subjects[0]
+            result.subject.address = only.address
+            result.subject.building_area = only.building_area
+            result.subject.unit_price = only.unit_price
+            result.subject.total_price = only.total_price
+            result.subject.floor = only.floor
+            # 设置 final_xxx
+            result.final_unit_price = only.unit_price
+            result.final_total_price = only.total_price
+
+        elif len(result.subjects) > 1:
+            # 多个估价对象：用合计行或手动累加
+            # 地址拼接
+            addresses = [s.address.value for s in result.subjects if s.address and s.address.value]
+            combined_addr = '、'.join(addresses) if addresses else ''
+            result.subject.address = self.create_located_value(
+                combined_addr, table_idx, 1, col_map['address'], combined_addr
+            )
+
+            if summary_row:
+                # 有合计行，从合计行取面积和总价
+                sum_row_idx, sum_cells = summary_row
+
+                area_col = col_map['area']
+                if area_col >= 0 and area_col < len(sum_cells):
+                    value = self.safe_extract_number(
+                        sum_cells[area_col], 'summary_area',
+                        Position(table_idx, sum_row_idx, area_col)
+                    )
+                    if value:
+                        result.subject.building_area = self.create_located_value(
+                            value, table_idx, sum_row_idx, area_col, sum_cells[area_col]
+                        )
+
+                tp_col = col_map['total_price']
+                if tp_col >= 0 and tp_col < len(sum_cells):
+                    raw_text = sum_cells[tp_col]
+                    value = self.safe_extract_number(
+                        raw_text, 'summary_total_price',
+                        Position(table_idx, sum_row_idx, tp_col)
+                    )
+                    if value:
+                        if result.price_in_wan:
+                            value = value * 10000
+                        result.subject.total_price = self.create_located_value(
+                            value, table_idx, sum_row_idx, tp_col, raw_text
+                        )
+            else:
+                # 没有合计行，手动累加
+                total_area = sum(
+                    s.building_area.value for s in result.subjects
+                    if s.building_area and s.building_area.value
+                )
+                total_price = sum(
+                    s.total_price.value for s in result.subjects
+                    if s.total_price and s.total_price.value
+                )
+                if total_area > 0:
+                    result.subject.building_area = self.create_located_value(
+                        total_area, table_idx, 1, col_map['area'], f'{total_area:.2f}'
+                    )
+                if total_price > 0:
+                    result.subject.total_price = self.create_located_value(
+                        total_price, table_idx, 1, col_map['total_price'], f'{total_price:.2f}'
+                    )
+
+            # 单价：取第一个估价对象的单价（各对象通常相同）
+            first_with_price = next(
+                (s for s in result.subjects if s.unit_price and s.unit_price.value), None
+            )
+            if first_with_price:
+                result.subject.unit_price = first_with_price.unit_price
+
+            result.final_unit_price = result.subject.unit_price
+            result.final_total_price = result.subject.total_price
+
+        # 如果上面没有提取到任何 subject（表格结构异常），走老逻辑兜底
+        if not result.subjects:
+            self._extract_result_summary_fallback(result)
+
+        print(f"   估价对象数量: {len(result.subjects)}")
+        for i, s in enumerate(result.subjects):
+            addr = s.address.value if s.address and s.address.value else '?'
+            area = s.building_area.value if s.building_area and s.building_area.value else '?'
+            tp = s.total_price.value if s.total_price and s.total_price.value else '?'
+            print(f"     [{i + 1}] {addr} | 面积={area} | 总价={tp}")
+
+    def _extract_result_summary_fallback(self, result: ZujinExtractionResult):
+        """兜底：老格式汇总表（当动态表头识别失败时）"""
+        table = self.tables[self.TABLE_RESULT_SUMMARY]
+        table_idx = self.TABLE_RESULT_SUMMARY
+
         if len(table.rows) >= 2:
             cells = get_row_cells_simple(table.rows[1])
 
-            # 地址
             if len(cells) >= 1 and cells[0]:
                 result.subject.address = self.create_located_value(
                     cells[0], table_idx, 1, 0, cells[0]
                 )
-
-            # 建筑面积
             if len(cells) >= 2:
                 value = self.safe_extract_number(cells[1], 'building_area', Position(table_idx, 1, 1))
                 if value:
                     result.subject.building_area = self.create_located_value(value, table_idx, 1, 1, cells[1])
-
-            # 单价（租金）
             if len(cells) >= 3:
                 value = self.safe_extract_number(cells[2], 'unit_price', Position(table_idx, 1, 2))
                 if value:
                     result.subject.unit_price = self.create_located_value(value, table_idx, 1, 2, cells[2])
                     result.final_unit_price = result.subject.unit_price
-
-            # 总价（租金总价）
             if len(cells) >= 4:
                 total_text = cells[3]
                 value = self.safe_extract_number(total_text, 'total_price', Position(table_idx, 1, 3))
                 if value:
                     result.subject.total_price = self.create_located_value(value, table_idx, 1, 3, total_text)
                     result.final_total_price = result.subject.total_price
+
+            # 创建单个 subject
+            sub = Subject()
+            sub.address = result.subject.address
+            sub.building_area = result.subject.building_area
+            sub.unit_price = result.subject.unit_price
+            sub.total_price = result.subject.total_price
+            result.subjects.append(sub)
 
     def _extract_property_rights(self, result: ZujinExtractionResult):
         """提取权属信息"""
@@ -368,7 +604,17 @@ class ZujinExtractor(BaseExtractor):
                 if value:
                     case.rental_price = self.create_located_value(value, table_idx, row_idx, col_idx, raw_text)
             elif field_name == 'building_area':
-                value = self.safe_extract_number(raw_text, f'{case.case_id}_building_area', Position(table_idx, row_idx, col_idx))
+                area_value, area_unit = parse_area(raw_text)
+                if area_value:
+                    value = area_value  # 已经统一为平方米
+                    if area_unit == 'mu':
+                        print(f"     ⚠️ 面积使用亩单位: {raw_text} → {value:.2f}㎡")
+                else:
+                    value = self.safe_extract_number(
+                        raw_text, f'subject_{row_idx}_area',
+                        Position(table_idx, row_idx, col_idx)
+                    )
+                # value = self.safe_extract_number(raw_text, f'{case.case_id}_building_area', Position(table_idx, row_idx, col_idx))
                 if value:
                     case.building_area = self.create_located_value(value, table_idx, row_idx, col_idx, raw_text)
             elif field_name == 'transaction_date':
@@ -409,11 +655,33 @@ class ZujinExtractor(BaseExtractor):
             '权益因素': '权益状况',
         }
 
+        known_factors = set(self.LOCATION_FACTORS + self.PHYSICAL_FACTORS + self.RIGHTS_FACTORS)
+        detected_factor_col = None
+        for scan_row_idx in range(1, min(len(table.rows), 10)):
+            scan_cells = row_to_text_list(table.rows[scan_row_idx])
+            for scan_col_idx, scan_text in enumerate(scan_cells):
+                if normalize_label(scan_text) in known_factors:
+                    detected_factor_col = scan_col_idx
+                    break
+            if detected_factor_col is not None:
+                break
+
+        if detected_factor_col is not None and detected_factor_col != COL_FACTOR:
+            # 列有偏移，重新计算所有列索引
+            offset = detected_factor_col - COL_FACTOR
+            COL_CATEGORY = max(0, COL_CATEGORY + offset)
+            COL_FACTOR = detected_factor_col
+            COL_SUBJECT = COL_FACTOR + 1
+            COL_A = COL_FACTOR + 2
+            COL_B = COL_FACTOR + 3
+            COL_C = COL_FACTOR + 4
+            print(f"   因素表列偏移修正: factor_col={COL_FACTOR}, offset={offset}")
+
         current_category = ""
 
         for row_idx, row in enumerate(table.rows[1:], 1):
             cells = row_to_text_list(row)
-            if len(cells) < 6:
+            if len(cells) < 3:
                 continue
 
             raw_category = normalize_label(cells[COL_CATEGORY])
@@ -477,11 +745,33 @@ class ZujinExtractor(BaseExtractor):
         COL_B = 4
         COL_C = 5
 
+        known_factors = set(self.LOCATION_FACTORS + self.PHYSICAL_FACTORS + self.RIGHTS_FACTORS)
+        detected_factor_col = None
+        for scan_row_idx in range(1, min(len(table.rows), 10)):
+            scan_cells = row_to_text_list(table.rows[scan_row_idx])
+            for scan_col_idx, scan_text in enumerate(scan_cells):
+                if normalize_label(scan_text) in known_factors:
+                    detected_factor_col = scan_col_idx
+                    break
+            if detected_factor_col is not None:
+                break
+
+        if detected_factor_col is not None and detected_factor_col != COL_FACTOR:
+            # 列有偏移，重新计算所有列索引
+            offset = detected_factor_col - COL_FACTOR
+            COL_CATEGORY = max(0, COL_CATEGORY + offset)
+            COL_FACTOR = detected_factor_col
+            COL_SUBJECT = COL_FACTOR + 1
+            COL_A = COL_FACTOR + 2
+            COL_B = COL_FACTOR + 3
+            COL_C = COL_FACTOR + 4
+            print(f"   因素表列偏移修正: factor_col={COL_FACTOR}, offset={offset}")
+
         current_category = ""
 
         for row_idx, row in enumerate(table.rows[1:], 1):
             cells = row_to_text_list(row)
-            if len(cells) < 6:
+            if len(cells) < 3:
                 continue
 
             raw_category = normalize_label(cells[COL_CATEGORY])
@@ -543,6 +833,28 @@ class ZujinExtractor(BaseExtractor):
         COL_B = 4
         COL_C = 5
 
+        known_factors = set(self.LOCATION_FACTORS + self.PHYSICAL_FACTORS + self.RIGHTS_FACTORS)
+        detected_factor_col = None
+        for scan_row_idx in range(1, min(len(table.rows), 10)):
+            scan_cells = row_to_text_list(table.rows[scan_row_idx])
+            for scan_col_idx, scan_text in enumerate(scan_cells):
+                if normalize_label(scan_text) in known_factors:
+                    detected_factor_col = scan_col_idx
+                    break
+            if detected_factor_col is not None:
+                break
+
+        if detected_factor_col is not None and detected_factor_col != COL_FACTOR:
+            # 列有偏移，重新计算所有列索引
+            offset = detected_factor_col - COL_FACTOR
+            COL_CATEGORY = max(0, COL_CATEGORY + offset)
+            COL_FACTOR = detected_factor_col
+            COL_SUBJECT = COL_FACTOR + 1
+            COL_A = COL_FACTOR + 2
+            COL_B = COL_FACTOR + 3
+            COL_C = COL_FACTOR + 4
+            print(f"   因素表列偏移修正: factor_col={COL_FACTOR}, offset={offset}")
+
         def to_int(val):
             try:
                 return int(float(val))
@@ -553,7 +865,7 @@ class ZujinExtractor(BaseExtractor):
 
         for row_idx, row in enumerate(table.rows[1:], 1):
             cells = row_to_text_list(row)
-            if len(cells) < 6:
+            if len(cells) < 3:
                 continue
 
             raw_category = normalize_label(cells[COL_CATEGORY])
@@ -711,3 +1023,20 @@ class ZujinExtractor(BaseExtractor):
                         case.total_floor = int(total)
                     except:
                         pass
+
+        if len(result.subjects) > 1:
+            all_inferred_floors = []
+            for sub in result.subjects:
+                addr = sub.address.value if sub.address and sub.address.value else ''
+                inferred = infer_floors_from_rooms(addr)
+                if inferred:
+                    all_inferred_floors.extend(inferred)
+                    # 如果 sub.floor 还没赋值，用推断值
+                    if not sub.floor:
+                        if len(inferred) == 1:
+                            sub.floor = str(inferred[0])
+
+            if all_inferred_floors:
+                min_f = min(all_inferred_floors)
+                max_f = max(all_inferred_floors)
+                print(f"   楼层推断: 从房号推断为第{min_f}-{max_f}层")

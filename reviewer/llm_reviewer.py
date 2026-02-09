@@ -6,8 +6,11 @@ LLM语义审查器
 
 import os
 import sys
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from kb_types import ExtractionResult
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -45,7 +48,7 @@ class LLMReviewResult:
 class LLMReviewer:
     """LLM语义审查器"""
 
-    def __init__(self, llm_client: LLMClient = None):
+    def __init__(self, llm_client: Optional[LLMClient] = None):
         """
         初始化
 
@@ -58,7 +61,7 @@ class LLMReviewer:
         """检查LLM是否可用"""
         return self.llm.is_available()
 
-    def review(self, extraction_result, report_type: str = "shezhi") -> LLMReviewResult:
+    def review(self, extraction_result: 'ExtractionResult', report_type: str = "shezhi") -> LLMReviewResult:
         """
         审查提取结果
 
@@ -90,7 +93,7 @@ class LLMReviewer:
 
         return result
 
-    def _review_comparison(self, result, report_type: str) -> List[LLMIssue]:
+    def _review_comparison(self, result: 'ExtractionResult', report_type: str) -> List[LLMIssue]:
         """审查估价对象与可比实例的关系"""
         issues = []
 
@@ -155,7 +158,7 @@ class LLMReviewer:
 
         return issues
 
-    def _review_factors(self, result) -> List[LLMIssue]:
+    def _review_factors(self, result: 'ExtractionResult') -> List[LLMIssue]:
         """审查因素等级与指数"""
         issues = []
 
@@ -337,6 +340,14 @@ class LLMReviewer:
         result = LLMReviewResult()
 
         try:
+            if hasattr(extraction_data, 'subjects') and len(extraction_data.subjects) > 1:
+                extraction_data['multi_subjects'] = []
+                for sub in result.subjects:
+                    extraction_data['multi_subjects'].append({
+                        'address': sub.address.value if sub.address and sub.address.value else '',
+                        'area': sub.building_area.value if sub.building_area and sub.building_area.value else 0,
+                        'total_price': sub.total_price.value if sub.total_price and sub.total_price.value else 0,
+                    })
             prompt = build_full_document_review_prompt(paragraphs, report_type, extraction_data)
             response = self.llm.call_json(prompt)
             result.raw_responses.append(response)

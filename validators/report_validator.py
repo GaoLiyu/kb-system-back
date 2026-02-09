@@ -8,6 +8,10 @@ import sys
 import os
 
 from utils import normalize_factor, parse_ratio_to_float
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kb_types import ExtractionResult
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -54,18 +58,18 @@ class ValidationResult:
 class ReportValidator:
     """报告校验器"""
     
-    def __init__(self, config: Dict = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or VALIDATION_CONFIG
     
-    def validate(self, result) -> ValidationResult:
+    def validate(self, result: 'ExtractionResult') -> ValidationResult:
         """
         校验提取结果
         
         Args:
-            result: 提取结果对象
+            result: 提取结果对象（支持多种报告类型）
         
         Returns:
-            ValidationResult
+            ValidationResult 校验结果
         """
         issues = []
         formula_checks = []
@@ -112,7 +116,7 @@ class ReportValidator:
             summary=f"发现{error_count}个错误，{warning_count}个警告"
         )
     
-    def _check_completeness(self, result) -> List[Issue]:
+    def _check_completeness(self, result: 'ExtractionResult') -> List[Issue]:
         """完整性校验"""
         issues = []
         
@@ -192,7 +196,7 @@ class ReportValidator:
         
         return issues
     
-    def _check_reasonability(self, result) -> List[Issue]:
+    def _check_reasonability(self, result: 'ExtractionResult') -> List[Issue]:
         """合理性校验"""
         issues = []
         
@@ -314,7 +318,7 @@ class ReportValidator:
 
         return issues
     
-    def _check_formulas(self, result) -> List[FormulaCheck]:
+    def _check_formulas(self, result: 'ExtractionResult') -> List[FormulaCheck]:
         """反算校验"""
         checks = []
         tolerance = self.config.get('formula_tolerance', 10)
@@ -411,6 +415,16 @@ class ReportValidator:
                     # 使用百分比容差(1%)
                     tolerance_pct = max(expected * 0.01, tolerance)
 
+                    # 取整容差：如果 actual 是 100/1000/10000 的整数倍，允许更大容差
+                    is_rounded = False
+                    if final_price > 0:
+                        if final_price % 100 == 0 and diff < 100:
+                            is_rounded = True
+                        elif final_price % 1000 == 0 and diff < 1000:
+                            is_rounded = True
+                        elif final_price % 10000 == 0 and diff < 10000:
+                            is_rounded = True
+
                     # 构建输入参数
                     inputs = {
                         'vs': {'raw': vs_raw, 'value': vs},
@@ -443,7 +457,7 @@ class ReportValidator:
                         expected=round(expected, 2),
                         actual=final_price,
                         difference=round(diff, 2),
-                        is_valid=(diff < tolerance_pct),
+                        is_valid=(diff < tolerance_pct or is_rounded),
                         position=final_price_position,
                         inputs=inputs,
                         formula_detail=formula_detail,
@@ -546,37 +560,78 @@ class ReportValidator:
                     pc, pc_raw = get_correction(case, 'physical_correction')
                     rc, rc_raw = get_correction(case, 'rights_correction')
 
-                    expected = trans * tc * mc * lc * pc * rc
-                    diff = abs(expected - adj)
-                    # 使用百分比容差(1%)
-                    tolerance_pct = max(expected * 0.01, tolerance)
+                    if report_type == 'zujin' and hasattr(case, 'subjects') and len(result.subjects) > 0:
 
-                    inputs = {
-                        'trans': {'raw': trans_raw, 'value': trans},
-                        'tc': {'raw': tc_raw, 'value': tc},
-                        'mc': {'raw': mc_raw, 'value': mc},
-                        'lc': {'raw': lc_raw, 'value': lc},
-                        'pc': {'raw': pc_raw, 'value': pc},
-                        'rc': {'raw': rc_raw, 'value': rc},
-                    }
+                        rent_unit = getattr(result, 'rent_unit', 'year')
+                        multiplier = { 'day': 365, 'month': 12, 'year': 1 }.get(rent_unit, 1)
 
-                    formula_detail = f"{trans:.2f}×{tc:.4f}×{mc:.4f}×{lc:.4f}×{pc:.4f}×{rc:.4f}={expected:.2f}"
+                        for sub in result.subjects:
+                            if sub.unit_price and sub.unit_price.value and sub.building_area and sub.building_area.value and sub.total_price and sub.total_price.value:
+                                expected = sub.unit_price.value * multiplier * sub.building_area.value
+                                actual = sub.total_price.value
+                                diff = abs(expected - actual)
 
-                    checks.append(FormulaCheck(
-                        case_id=case_id,
-                        formula_name='修正后单价',
-                        expected=round(expected, 2),
-                        actual=adj,
-                        difference=round(diff, 2),
-                        is_valid=(diff < tolerance_pct),
-                        position=adj_position,
-                        inputs=inputs,
-                        formula_detail=formula_detail,
-                    ))
+                                is_rounded = False
+                                if actual % 100 == 0 and diff < 100:
+                                    is_rounded = True
+                                elif actual % 1000 == 0 and diff < 1000:
+                                    is_rounded = True
+
+                                tolerance_pct = max(expected * 0.01, tolerance)
+                                addr = sub.address.value if sub.address and sub.address.value else '?'
+
+                                checks.append(FormulaCheck(
+                                    case_id=f'估价对象({addr})',
+                                    formula_name=f'总价=单价×{multiplier}×面积',
+                                    expected=round(expected, 2),
+                                    actual=actual,
+                                    difference=round(diff, 2),
+                                    is_valid=(diff < tolerance_pct or is_rounded),
+                                    inputs={
+                                        'unit_price': {'value': sub.unit_price.value},
+                                        'area': {'value': sub.building_area.value},
+                                        'multiplier': {'value': multiplier},
+                                        'rent_unit': {'value': rent_unit},
+                                    },
+                                ))
+                    else:
+                        expected = trans * tc * mc * lc * pc * rc
+
+                        diff = abs(expected - adj)
+
+                        is_rounded = (adj % 100 == 0 and diff < 100) or \
+                                     (adj % 1000 == 0 and diff < 1000) or \
+                                     (adj % 10000 == 0 and diff < 10000)
+
+                        # 使用百分比容差(1%)
+                        tolerance_pct = max(expected * 0.01, tolerance)
+
+                        inputs = {
+                            'trans': {'raw': trans_raw, 'value': trans},
+                            'tc': {'raw': tc_raw, 'value': tc},
+                            'mc': {'raw': mc_raw, 'value': mc},
+                            'lc': {'raw': lc_raw, 'value': lc},
+                            'pc': {'raw': pc_raw, 'value': pc},
+                            'rc': {'raw': rc_raw, 'value': rc},
+                        }
+
+                        formula_detail = f"{trans:.2f}×{tc:.4f}×{mc:.4f}×{lc:.4f}×{pc:.4f}×{rc:.4f}={expected:.2f}"
+
+                        checks.append(FormulaCheck(
+                            case_id=case_id,
+                            formula_name='修正后单价',
+                            expected=round(expected, 2),
+                            actual=adj,
+                            difference=round(diff, 2),
+                            is_valid=(diff < tolerance_pct or is_rounded),
+                            position=adj_position,
+                            inputs=inputs,
+                            formula_detail=formula_detail,
+                        ))
         
         return checks
     
-    def _check_consistency(self, result) -> List[Issue]:
+    def _check_consistency(self, result: 'ExtractionResult') -> List[Issue]:
         """一致性校验"""
         issues = []
         
@@ -616,7 +671,7 @@ class ReportValidator:
 # 便捷函数
 # ============================================================================
 
-def validate_report(result, config: Dict = None) -> ValidationResult:
+def validate_report(result: 'ExtractionResult', config: Dict = None) -> ValidationResult:
     """校验报告的便捷函数"""
     validator = ReportValidator(config)
     return validator.validate(result)

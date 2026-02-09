@@ -128,6 +128,42 @@ def parse_number(text: str, *,
 
     return default if not allow_none else None
 
+def parse_area(text: str) -> Tuple[Optional[float], str]:
+    """
+    解析面积文本，统一转换为平方米
+
+    Returns:
+        (数值_平方米, 原始单位)
+        原始单位: 'sqm' | 'mu' | 'unknown'
+
+    示例:
+        "137.33㎡" → (137.33, 'sqm')
+        "56.2亩" → (37466.95, 'mu')
+        "137.33" → (137.33, 'sqm')
+    """
+    if not text:
+        return None, 'unknown'
+
+    text = str(text).strip()
+
+    # 检测亩
+    mu_match = re.search(r'([\d,.]+)\s*亩', text)
+    if mu_match:
+        value = float(mu_match.group(1).replace(',', ''))
+        return round(value * 666.67, 2), 'mu'
+
+    # 检测平方米/㎡
+    sqm_match = re.search(r'([\d,.]+)\s*(?:㎡|平方米|m²|M²|平米)', text)
+    if sqm_match:
+        value = float(sqm_match.group(1).replace(',', ''))
+        return value, 'sqm'
+
+    # 纯数字，默认平方米
+    value = parse_number(text)
+    if value is not None:
+        return value, 'sqm'
+
+    return None, 'unknown'
 
 def parse_floor(text: str) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -184,6 +220,33 @@ def parse_floor(text: str) -> Tuple[Optional[str], Optional[str]]:
     # 无法解析，返回原文
     return (text, None)
 
+
+def infer_floors_from_rooms(text: str) -> List[int]:
+    """
+    从房号推断楼层
+
+    "101室" → [1]
+    "808室" → [8]
+    "101室和301室" → [1, 3]
+    "101室、301室" → [1, 3]
+    "北大街96号808室" → [8]
+
+    规则：3位及以上数字房号，去掉最后两位是楼层
+    """
+    floors = []
+    # 匹配所有房号
+    room_numbers = re.findall(r'(\d{3,})\s*室', text)
+    for room_no in room_numbers:
+        # 去掉最后两位（单元内房间号），剩余部分是楼层
+        floor_part = room_no[:-2]
+        if floor_part:
+            try:
+                floor = int(floor_part)
+                if 0 < floor < 100:
+                    floors.append(floor)
+            except ValueError:
+                pass
+    return sorted(set(floors))
 
 # ============================================================================
 # 关键词匹配

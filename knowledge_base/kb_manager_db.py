@@ -7,8 +7,11 @@
 import os
 import sys
 import json
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from dataclasses import dataclass, field, asdict
+
+if TYPE_CHECKING:
+    from kb_types import ExtractionResult
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -235,6 +238,21 @@ def result_to_dict(result) -> Dict:
         data['price_unit'] = result.price_unit
     if hasattr(result, 'final_price'):
         data['final_price'] = loc_val_to_dict(result.final_price)
+    if hasattr(result, 'subjects') and result.subjects:
+        data['subjects'] = []
+        for sub in result.subjects:
+            sub_dict = {
+                'address': loc_val_to_dict(sub.address),
+                'building_area': loc_val_to_dict(sub.building_area),
+                'unit_price': loc_val_to_dict(sub.unit_price),
+                'total_price': loc_val_to_dict(sub.total_price),
+                'floor': getattr(sub, 'floor', ''),
+            }
+            data['subjects'].append(sub_dict)
+    if hasattr(result, 'rent_unit'):
+        data['rent_unit'] = result.rent_unit
+    if hasattr(result, 'price_in_wan'):
+        data['price_in_wan'] = result.price_in_wan
 
     return data
 
@@ -297,7 +315,7 @@ class KnowledgeBaseManager:
         if self.vector_store.is_dirty:
             self.rebuild_vector_index()
 
-    def add_report(self, result, report_type: str) -> str:
+    def add_report(self, result: 'ExtractionResult', report_type: str) -> str:
         """
         添加报告到知识库（支持普通报告和批量评估报告）
 

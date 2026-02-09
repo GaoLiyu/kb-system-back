@@ -18,9 +18,11 @@ FastAPI 依赖注入
         pass
 """
 
+from functools import lru_cache
 from fastapi import Depends, Request, HTTPException
 from typing import Optional
 
+from .config import settings
 from .auth import (
     get_current_user,
     get_optional_user,
@@ -145,6 +147,33 @@ class RequirePermission:
 
 
 # ============================================================================
+# 系统实例（单例）
+# ============================================================================
+@lru_cache(maxsize=1)
+def get_system():
+    """
+    获取 RealEstateKBSystem 单例
+
+    使用 lru_cache 确保整个应用生命周期只创建一次
+    """
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    from main import RealEstateKBSystem
+
+    return RealEstateKBSystem(
+        kb_path=settings.kb_path,
+        enable_llm=settings.enable_llm,
+        enable_vector=settings.enable_vector,
+    )
+
+def reset_system():
+    """重置系统单例"""
+    get_system().cache_clear()
+
+
+# ============================================================================
 # 导出
 # ============================================================================
 
@@ -173,4 +202,6 @@ __all__ = [
     'require_reviewer',
     'require_editor',
     'require_viewer',
+
+    'get_system',
 ]

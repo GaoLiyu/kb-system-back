@@ -384,11 +384,33 @@ class ShezhiExtractor(BaseExtractor):
             '权益因素': '权益状况',
         }
 
+        known_factors = set(self.LOCATION_FACTORS + self.PHYSICAL_FACTORS + self.RIGHTS_FACTORS)
+        detected_factor_col = None
+        for scan_row_idx in range(1, min(len(table.rows), 10)):
+            scan_cells = row_to_text_list(table.rows[scan_row_idx])
+            for scan_col_idx, scan_text in enumerate(scan_cells):
+                if normalize_label(scan_text) in known_factors:
+                    detected_factor_col = scan_col_idx
+                    break
+            if detected_factor_col is not None:
+                break
+
+        if detected_factor_col is not None and detected_factor_col != COL_FACTOR:
+            # 列有偏移，重新计算所有列索引
+            offset = detected_factor_col - COL_FACTOR
+            COL_CATEGORY = max(0, COL_CATEGORY + offset)
+            COL_FACTOR = detected_factor_col
+            COL_SUBJECT = COL_FACTOR + 1
+            COL_A = COL_FACTOR + 2
+            COL_B = COL_FACTOR + 3
+            COL_C = COL_FACTOR + 4
+            print(f"   因素表列偏移修正: factor_col={COL_FACTOR}, offset={offset}")
+
         current_category = ""
 
         for row_idx, row in enumerate(table.rows[1:], 1):
             cells = row_to_text_list(row)
-            if len(cells) < 6:
+            if len(cells) < 3:
                 continue
 
             raw_category = normalize_label(cells[COL_CATEGORY])
@@ -455,11 +477,33 @@ class ShezhiExtractor(BaseExtractor):
         COL_B = 4
         COL_C = 5
 
+        known_factors = set(self.LOCATION_FACTORS + self.PHYSICAL_FACTORS + self.RIGHTS_FACTORS)
+        detected_factor_col = None
+        for scan_row_idx in range(1, min(len(table.rows), 10)):
+            scan_cells = row_to_text_list(table.rows[scan_row_idx])
+            for scan_col_idx, scan_text in enumerate(scan_cells):
+                if normalize_label(scan_text) in known_factors:
+                    detected_factor_col = scan_col_idx
+                    break
+            if detected_factor_col is not None:
+                break
+
+        if detected_factor_col is not None and detected_factor_col != COL_FACTOR:
+            # 列有偏移，重新计算所有列索引
+            offset = detected_factor_col - COL_FACTOR
+            COL_CATEGORY = max(0, COL_CATEGORY + offset)
+            COL_FACTOR = detected_factor_col
+            COL_SUBJECT = COL_FACTOR + 1
+            COL_A = COL_FACTOR + 2
+            COL_B = COL_FACTOR + 3
+            COL_C = COL_FACTOR + 4
+            print(f"   因素表列偏移修正: factor_col={COL_FACTOR}, offset={offset}")
+
         current_category = ""
 
         for row_idx, row in enumerate(table.rows[1:], 1):
             cells = row_to_text_list(row)
-            if len(cells) < 6:
+            if len(cells) < 3:
                 continue
 
             raw_category = normalize_label(cells[COL_CATEGORY])
@@ -521,6 +565,28 @@ class ShezhiExtractor(BaseExtractor):
         COL_B = 4
         COL_C = 5
 
+        known_factors = set(self.LOCATION_FACTORS + self.PHYSICAL_FACTORS + self.RIGHTS_FACTORS)
+        detected_factor_col = None
+        for scan_row_idx in range(1, min(len(table.rows), 10)):
+            scan_cells = row_to_text_list(table.rows[scan_row_idx])
+            for scan_col_idx, scan_text in enumerate(scan_cells):
+                if normalize_label(scan_text) in known_factors:
+                    detected_factor_col = scan_col_idx
+                    break
+            if detected_factor_col is not None:
+                break
+
+        if detected_factor_col is not None and detected_factor_col != COL_FACTOR:
+            # 列有偏移，重新计算所有列索引
+            offset = detected_factor_col - COL_FACTOR
+            COL_CATEGORY = max(0, COL_CATEGORY + offset)
+            COL_FACTOR = detected_factor_col
+            COL_SUBJECT = COL_FACTOR + 1
+            COL_A = COL_FACTOR + 2
+            COL_B = COL_FACTOR + 3
+            COL_C = COL_FACTOR + 4
+            print(f"   因素表列偏移修正: factor_col={COL_FACTOR}, offset={offset}")
+
         def to_int(val):
             try:
                 return int(float(val))
@@ -531,7 +597,7 @@ class ShezhiExtractor(BaseExtractor):
 
         for row_idx, row in enumerate(table.rows[1:], 1):
             cells = row_to_text_list(row)
-            if len(cells) < 6:
+            if len(cells) < 3:
                 continue
 
             raw_category = normalize_label(cells[COL_CATEGORY])

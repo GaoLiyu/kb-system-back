@@ -6,8 +6,11 @@
 
 import os
 import sys
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from kb_types import ExtractionResult
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -53,13 +56,13 @@ class ReviewResult:
 class ReportReviewer:
     """报告审查器"""
     
-    def __init__(self, kb_manager: KnowledgeBaseManager, enable_llm: bool = True):
+    def __init__(self, kb_manager: 'KnowledgeBaseManager', enable_llm: bool = True):
         """
         Args:
             kb_manager: 知识库管理器
             enable_llm: 是否启用LLM语义审查
         """
-        self.kb = kb_manager
+        self.kb: 'KnowledgeBaseManager' = kb_manager
         self.query = KnowledgeBaseQuery(kb_manager)
         self.enable_llm = enable_llm
         self.llm_reviewer = LLMReviewer() if enable_llm else None
@@ -136,7 +139,7 @@ class ReportReviewer:
         
         return review_result
     
-    def _compare_with_kb(self, result, report_type: str) -> List[ComparisonResult]:
+    def _compare_with_kb(self, result: 'ExtractionResult', report_type: str) -> List[ComparisonResult]:
         """与知识库对比"""
         comparisons = []
         
@@ -279,7 +282,7 @@ class ReportReviewer:
         
         return comparisons
     
-    def _find_similar(self, result, report_type: str) -> List[Dict]:
+    def _find_similar(self, result: 'ExtractionResult', report_type: str) -> List[Dict]:
         """查找相似案例"""
         # 获取估价对象信息
         address = result.subject.address.value or ""

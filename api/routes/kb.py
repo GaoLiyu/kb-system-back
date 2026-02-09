@@ -8,29 +8,25 @@ from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Query
 
 from ..auth import get_current_user, require_editor, require_viewer
 from ..config import settings
-from main import RealEstateKBSystem
 from utils import detect_report_type
 from ..dependencies import (
     CurrentUser,
     RequireRoles,
     OrgScoped,
     RequirePermission,
+    get_system
 )
 from ..iam_client import UserContext
+from ..schemas import (
+    success_response,
+    error_response,
+    paginated_response,
+    ReportSummary,
+    CaseSummary,
+    StatsOverview,
+)
 
 router = APIRouter(prefix="/kb", tags=["知识库"])
-
-_system = None
-
-def get_system():
-    global _system
-    if _system is None:
-        _system = RealEstateKBSystem(
-            kb_path=settings.kb_path,
-            enable_llm=settings.enable_llm,
-            enable_vector=settings.enable_vector,
-        )
-    return _system
 
 
 @router.get("/reports", summary="报告列表")
@@ -64,14 +60,12 @@ async def list_reports(
     end = start + page_size
     reports = all_reports[start:end]
 
-    return {
-        "success": True,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-        "reports": reports,
-    }
+    return paginated_response(
+        items=reports,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/cases", summary="案例列表")
@@ -136,14 +130,12 @@ async def list_cases(
     end = start + page_size
     cases = filtered[start:end]
 
-    return {
-        "success": True,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-        "cases": cases,
-    }
+    return paginated_response(
+        items=cases,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/case/{case_id}", summary="案例详情")
@@ -180,10 +172,7 @@ async def get_report_detail(
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
 
-    return {
-        "success": True,
-        "report": report,
-    }
+    return success_response(data=report)
 
 
 @router.get("/filters", summary="获取筛选选项")
@@ -225,7 +214,10 @@ async def upload_report(
     """上传报告到知识库"""
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in settings.allowed_extensions:
-        raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
+        return error_response(
+            message=f"不支持的文件格式: {ext}",
+            error_code="INVALID_FILE_TYPE",
+        )
 
     upload_path = os.path.join(settings.upload_dir, f"kb_{file.filename}")
     try:
@@ -237,11 +229,13 @@ async def upload_report(
         doc_id = system.add_report(upload_path, verbose=False)
         detected_type = report_type or detect_report_type(upload_path)
 
-        return {
-            "success": True,
-            "doc_id": doc_id,
-            "report_type": detected_type,
-        }
+        return success_response(
+            data={
+                "doc_id": doc_id,
+                "report_type": detected_type,
+            },
+            message="报告上传成功",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -302,13 +296,15 @@ async def batch_upload_reports(
             if os.path.exists(upload_path):
                 os.remove(upload_path)
 
-    return {
-        "success": True,
-        "total": len(files),
-        "success_count": success_count,
-        "fail_count": fail_count,
-        "results": results,
-    }
+    return success_response(
+        data={
+            "total": len(files),
+            "success_count": success_count,
+            "failed_count": fail_count,
+            "results": results,
+        },
+        message=f"批量上传完成，成功 {success_count} 个，失败 {fail_count} 个",
+    )
 
 
 @router.delete("/report/{doc_id}", summary="删除报告")
@@ -323,14 +319,12 @@ async def delete_report(
     if not success:
         raise HTTPException(status_code=404, detail="报告不存在")
 
-    return {"success": True, "message": "删除成功"}
+    return success_response(message="报告已删除")
 
 
 @router.get("/stats", summary="统计信息")
 async def get_stats(user: UserContext = Depends(require_viewer)):
     """获取知识库统计"""
     system = get_system()
-    return {
-        "success": True,
-        **system.stats()
-    }
+    stats = system.kb.stats()
+    return success_response(data=stats)

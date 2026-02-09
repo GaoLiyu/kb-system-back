@@ -7,15 +7,20 @@
 import os
 import sys
 import json
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from dataclasses import dataclass, field, asdict
+
+from knowledge_base import VectorStore
+
+if TYPE_CHECKING:
+    from kb_types import ExtractionResult
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import generate_id, get_timestamp
 
 
-def result_to_dict(result) -> Dict:
+def result_to_dict(result: 'ExtractionResult') -> Dict:
     """将提取结果转为字典"""
     def loc_val_to_dict(lv):
         if lv is None:
@@ -120,7 +125,7 @@ class KnowledgeBaseManager:
         self.index = self._load_index()
 
         # 向量存储（延时初始化）
-        self._vector_store = None
+        self._vector_store: Optional['VectorStore'] = None
     
     def _load_index(self) -> Dict:
         """加载索引"""
@@ -177,7 +182,7 @@ class KnowledgeBaseManager:
         if self.vector_store.is_dirty:
             self.rebuild_vector_index()
     
-    def add_report(self, result, report_type: str) -> str:
+    def add_report(self, result: 'ExtractionResult', report_type: str) -> str:
         """
         添加报告到知识库
         

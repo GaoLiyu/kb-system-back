@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from ..auth import get_current_user, require_roles, get_data_scope, DataScope
 from ..iam_client import UserContext
 from ..audit import AuditLogger, Action, ResourceType
+from ..schemas import success_response, error_response, paginated_response
+
 
 router = APIRouter(prefix="/audit", tags=["审计日志"])
 
@@ -77,14 +79,12 @@ async def query_audit_logs(
         offset=(page - 1) * page_size,
     )
 
-    return {
-        "success": True,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size,
-        "logs": logs,
-    }
+    return paginated_response(
+        items=logs,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/logs/my", summary="查询我的操作日志")
@@ -127,13 +127,12 @@ async def query_my_logs(
         offset=(page - 1) * page_size,
     )
 
-    return {
-        "success": True,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "logs": logs,
-    }
+    return paginated_response(
+        items=logs,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/stats", summary="审计统计")
@@ -151,11 +150,12 @@ async def get_audit_stats(
 
     stats = await AuditLogger.get_stats(org_id=org_id, days=days)
 
-    return {
-        "success": True,
-        "days": days,
-        **stats,
-    }
+    return success_response(
+        data={
+            "days": days,
+            **stats,
+        }
+    )
 
 
 @router.get("/actions", summary="获取操作类型列表")
@@ -163,27 +163,29 @@ async def get_action_types(
     user: UserContext = Depends(get_current_user),
 ):
     """获取所有操作类型"""
-    return {
-        "success": True,
-        "actions": [
-            {"value": a.value, "label": _get_action_label(a.value)}
-            for a in Action
-        ],
-    }
+    return success_response(
+        data={
+            "actions": [
+                {"value": a.value, "label": _get_action_label(a.value)}
+                for a in Action
+            ],
+        }
+    )
 
 
-@router.get("/resource-types", summary="获取资源类型列表")
+@router.get("/resource-kb_types", summary="获取资源类型列表")
 async def get_resource_types(
     user: UserContext = Depends(get_current_user),
 ):
     """获取所有资源类型"""
-    return {
-        "success": True,
-        "resource_types": [
-            {"value": r.value, "label": _get_resource_label(r.value)}
-            for r in ResourceType
-        ],
-    }
+    return success_response(
+        data={
+            "resource_types": [
+                {"value": r.value, "label": _get_resource_label(r.value)}
+                for r in ResourceType
+            ],
+        }
+    )
 
 
 @router.get("/logs/{resource_type}/{resource_id}", summary="查询资源操作历史")
@@ -206,13 +208,12 @@ async def get_resource_history(
         offset=(page - 1) * page_size,
     )
 
-    return {
-        "success": True,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "logs": logs,
-    }
+    return paginated_response(
+        items=logs,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 # ============================================================================

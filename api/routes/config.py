@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from ..config import settings
 from ..auth import get_current_user, get_optional_user, require_roles
 from ..iam_client import UserContext
+from ..schemas import success_response, error_response
 
 router = APIRouter(prefix="/config", tags=["系统配置"])
 
@@ -91,27 +92,29 @@ async def get_system_config():
         iam_login_url = f"{iam_base}/login?app_code={app_code}"
         iam_logout_url = f"{iam_base}/logout?app_code={app_code}"
 
-    return SystemConfigResponse(
-        system=SystemInfo(
-            name="房地产估价知识库系统",
-            version="3.0.0",
-            description="基于比较法的房地产估价报告知识库系统",
-        ),
-        auth=AuthConfig(
-            iam_enabled=settings.iam_enabled,
-            iam_login_url=iam_login_url,
-            iam_logout_url=iam_logout_url,
-            iam_app_code=settings.iam_app_code if settings.iam_enabled else None,
-        ),
-        features=FeatureConfig(
-            enable_llm=settings.enable_llm,
-            enable_vector=settings.enable_vector,
-            enable_audit_log=True,
-            enable_batch_upload=True,
-            enable_export=True,
-            max_upload_size_mb=50,
-            allowed_extensions=list(settings.allowed_extensions),
-        ),
+    return success_response(
+        data={
+            "system": {
+                "name": settings.app_name,
+                "version": settings.version,
+                "description": "...",
+            },
+            "auth": {
+                "iam_enabled": settings.iam_enabled,
+                "iam_login_url": iam_login_url,
+                "iam_logout_url": iam_logout_url,
+                "iam_app_code": settings.iam_app_code if settings.iam_enabled else None,
+            },
+            "features": {
+                "enable_llm": settings.enable_llm,
+                "enable_vector": settings.enable_vector,
+                "enable_audit_log": True,
+                "enable_batch_upload": True,
+                "enable_export": True,
+                "max_upload_size_mb": settings.max_upload_size // (1024 * 1024),
+                "allowed_extensions": list(settings.allowed_extensions),
+            }
+        }
     )
 
 
@@ -129,19 +132,29 @@ async def get_current_user_info(
     - 权限列表
     """
     if not user:
-        return UserInfoResponse(logged_in=False)
+        return success_response(
+            data={
+                "logged_in": False,
+                "user_id": None,
+                "username": None,
+                "roles": [],
+                "permissions": [],
+            }
+        )
 
     # 根据角色生成权限列表
     permissions = _get_permissions_by_roles(user.roles)
 
-    return UserInfoResponse(
-        logged_in=True,
-        user_id=user.user_id,
-        username=user.username,
-        org_id=user.org_id,
-        org_name=user.org_name,
-        roles=user.roles,
-        permissions=permissions,
+    return success_response(
+        data={
+            "logged_in": True,
+            "user_id": user.user_id,
+            "username": user.username,
+            "org_id": user.org_id,
+            "org_name": user.org_name,
+            "roles": user.roles,
+            "permissions": _get_permissions_by_roles(user.roles),
+        }
     )
 
 
@@ -154,11 +167,12 @@ async def get_permission_definitions(
 
     返回所有权限及其说明，供前端权限管理使用
     """
-    return {
-        "success": True,
-        "permissions": PERMISSION_DEFINITIONS,
-        "roles": ROLE_DEFINITIONS,
-    }
+    return success_response(
+        data={
+            "permissions": PERMISSION_DEFINITIONS,
+            "roles": ROLE_DEFINITIONS,
+        }
+    )
 
 
 @router.get("/menus", summary="获取用户菜单")
@@ -191,10 +205,11 @@ async def get_user_menus(
         else:
             filtered_menus.append(menu)
 
-    return {
-        "success": True,
-        "menus": filtered_menus,
-    }
+    return success_response(
+        data={
+            "menus": filtered_menus,
+        }
+    )
 
 
 # ============================================================================

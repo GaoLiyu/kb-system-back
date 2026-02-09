@@ -11,6 +11,7 @@
 
 import os
 import sys
+from knowledge_base.db_connection import cleanup as cleanup_db, get_pool_stats
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,6 +32,7 @@ from .routes import (
     users_router
 )
 from .audit import AuditMiddleware
+from .exceptions import register_exception_handlers
 
 
 # ============================================================================
@@ -62,6 +64,8 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+register_exception_handlers(app)
 
 
 # ============================================================================
@@ -133,6 +137,38 @@ def api_root():
 def health_check():
     """健康检查"""
     return {"status": "ok"}
+
+
+# ============================================================================
+# 应用生命周期
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """应用启动事件"""
+    print("🚀 应用启动中...")
+
+    # 预热系统（可选）
+    try:
+        from .dependencies import get_system
+        system = get_system()
+        print(f"   ✓ 知识库系统初始化完成")
+
+        # 打印连接池状态
+        pool_stats = get_pool_stats()
+        print(f"   ✓ 数据库连接池: {pool_stats}")
+    except Exception as e:
+        print(f"   ⚠ 预热失败: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭事件"""
+    print("🛑 应用关闭中...")
+
+    # 清理数据库连接池
+    cleanup_db()
+    print("   ✓ 数据库连接池已关闭")
 
 
 # ============================================================================

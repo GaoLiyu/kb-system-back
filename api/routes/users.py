@@ -19,6 +19,7 @@ from ..auth import (
 )
 from ..iam_client import UserContext
 from ..models.user import User, UserRepository, OrganizationRepository
+from ..schemas import success_response, error_response, paginated_response
 
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
@@ -129,15 +130,22 @@ async def login(request: Request, req: LoginRequest):
     user, error = authenticate_user(req.username, req.password, ip_address)
 
     if not user:
-        return LoginResponse(success=False, message=error)
+        return error_response(message=error)
 
     # 创建Token
     token = create_user_token(user, ip_address, user_agent[:200])
 
-    return LoginResponse(
-        success=True,
-        token=token,
-        user=user_to_response(user),
+    return success_response(
+        data={
+            "token": token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "real_name": user.real_name,
+                "roles": user.roles,
+            },
+            # "expires_at": expires_at.isoformat(),
+        },
         message="登录成功",
     )
 
@@ -157,7 +165,7 @@ async def logout(
         token = auth_header[7:]
         revoke_user_token(token)
 
-    return {"success": True, "message": "已退出登录"}
+    return success_response(message="登出成功")
 
 
 @router.post("/logout-all", summary="退出所有设备")
@@ -170,9 +178,9 @@ async def logout_all(current_user: UserContext = Depends(get_current_user)):
     try:
         user_id = int(current_user.user_id)
         count = revoke_all_user_tokens(user_id)
-        return {"success": True, "message": f"已退出 {count} 个设备"}
+        return success_response(message=f"已退出 {count} 个设备")
     except (ValueError, TypeError):
-        return {"success": True, "message": "已退出登录"}
+        return success_response(message="登出成功")
 
 
 # ============================================================================
@@ -189,13 +197,12 @@ async def get_me(current_user: UserContext = Depends(get_current_user)):
         user_id = int(current_user.user_id)
         user = UserRepository.get_by_id(user_id)
         if user:
-            return {"success": True, "user": user_to_response(user)}
+            return success_response(data=user_to_response(user))
     except (ValueError, TypeError):
         pass
 
     # 返回UserContext信息
-    return {
-        "success": True,
+    return success_response(data={
         "user": {
             "id": current_user.user_id,
             "username": current_user.username,
@@ -204,7 +211,7 @@ async def get_me(current_user: UserContext = Depends(get_current_user)):
             "org_name": current_user.org_name,
             "roles": current_user.roles,
         },
-    }
+    })
 
 
 @router.put("/me", summary="更新个人信息")
@@ -220,7 +227,7 @@ async def update_me(
     try:
         user_id = int(current_user.user_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="无法修改非本地用户")
+        return error_response(error_code='400', message="无法修改非本地用户")
 
     user = UserRepository.update(
         user_id,
@@ -231,9 +238,11 @@ async def update_me(
     )
 
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
-    return {"success": True, "user": user_to_response(user)}
+    return success_response(data={
+        "user": user_to_response(user),
+    })
 
 
 @router.post("/me/change-password", summary="修改密码")
@@ -247,16 +256,16 @@ async def change_password(
     try:
         user_id = int(current_user.user_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="无法修改非本地用户密码")
+        return error_response(error_code='400', message="无法修改非本地用户密码")
 
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
     # 验证旧密码
     from ..models.user import verify_password
     if not verify_password(req.old_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="旧密码错误")
+        return error_response(error_code='400', message="旧密码错误")
 
     # 更新密码
     UserRepository.update_password(user_id, req.new_password)
@@ -264,7 +273,7 @@ async def change_password(
     # 撤销所有Token，强制重新登录
     revoke_all_user_tokens(user_id)
 
-    return {"success": True, "message": "密码修改成功，请重新登录"}
+    return success_response(message="密码修改成功，请重新登录")
 
 
 # ============================================================================
@@ -291,13 +300,12 @@ async def list_users(
         page_size=page_size,
     )
 
-    return {
-        "success": True,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "users": [user_to_response(u) for u in users],
-    }
+    return paginated_response(
+        items=[user_to_response(u) for u in users],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/{user_id}", summary="用户详情")
@@ -310,9 +318,11 @@ async def get_user(
     """
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
-    return {"success": True, "user": user_to_response(user)}
+    return success_response(data={
+        "user": user_to_response(user),
+    })
 
 
 @router.post("", summary="创建用户")
@@ -325,17 +335,17 @@ async def create_user(
     """
     # 检查用户名是否存在
     if UserRepository.check_username_exists(req.username):
-        raise HTTPException(status_code=400, detail="用户名已存在")
+        return error_response(error_code='400', message="用户名已存在")
 
     # 验证角色
     valid_roles = {"super_admin", "admin", "reviewer", "editor", "viewer"}
     for role in req.roles:
         if role not in valid_roles:
-            raise HTTPException(status_code=400, detail=f"无效的角色: {role}")
+            return error_response(error_code='400', message=f"无效的角色: {role}")
 
     # 只有超级管理员可以创建超级管理员
     if "super_admin" in req.roles and "super_admin" not in current_user.roles:
-        raise HTTPException(status_code=403, detail="只有超级管理员可以创建超级管理员")
+        return error_response(error_code='403', message="只有超级管理员可以创建超级管理员")
 
     try:
         created_by = int(current_user.user_id)
@@ -353,7 +363,9 @@ async def create_user(
         created_by=created_by,
     )
 
-    return {"success": True, "user": user_to_response(user)}
+    return success_response(data={
+        "user": user_to_response(user),
+    })
 
 
 @router.put("/{user_id}", summary="更新用户")
@@ -367,11 +379,11 @@ async def update_user(
     """
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
     # 不能修改超级管理员（除非自己是超级管理员）
     if "super_admin" in user.roles and "super_admin" not in current_user.roles:
-        raise HTTPException(status_code=403, detail="无权修改超级管理员")
+        return error_response(error_code='403', message="无权修改超级管理员")
 
     user = UserRepository.update(
         user_id,
@@ -382,7 +394,9 @@ async def update_user(
         status=req.status,
     )
 
-    return {"success": True, "user": user_to_response(user)}
+    return success_response(data={
+        "user": user_to_response(user),
+    })
 
 
 @router.put("/{user_id}/roles", summary="更新用户角色")
@@ -396,26 +410,28 @@ async def update_user_roles(
     """
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
     # 不能修改超级管理员的角色（除非自己是超级管理员）
     if "super_admin" in user.roles and "super_admin" not in current_user.roles:
-        raise HTTPException(status_code=403, detail="无权修改超级管理员角色")
+        return error_response(error_code='403', message="无权修改超级管理员角色")
 
     # 验证角色
     valid_roles = {"super_admin", "admin", "reviewer", "editor", "viewer"}
     for role in req.roles:
         if role not in valid_roles:
-            raise HTTPException(status_code=400, detail=f"无效的角色: {role}")
+            return error_response(error_code='400', message=f"无效的角色: {role}")
 
     # 只有超级管理员可以分配超级管理员角色
     if "super_admin" in req.roles and "super_admin" not in current_user.roles:
-        raise HTTPException(status_code=403, detail="只有超级管理员可以分配超级管理员角色")
+        return error_response(error_code='403', message="只有超级管理员可以分配超级管理员角色")
 
     UserRepository.update_roles(user_id, req.roles)
 
     user = UserRepository.get_by_id(user_id)
-    return {"success": True, "user": user_to_response(user)}
+    return success_response(data={
+        "user": user_to_response(user),
+    })
 
 
 @router.post("/{user_id}/reset-password", summary="重置密码")
@@ -429,18 +445,20 @@ async def reset_password(
     """
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
     # 不能重置超级管理员密码（除非自己是超级管理员）
     if "super_admin" in user.roles and "super_admin" not in current_user.roles:
-        raise HTTPException(status_code=403, detail="无权重置超级管理员密码")
+        return error_response(error_code='403', message="无权重置超级管理员密码")
 
     UserRepository.update_password(user_id, req.new_password)
 
     # 撤销该用户的所有Token
     revoke_all_user_tokens(user_id)
 
-    return {"success": True, "message": "密码已重置"}
+    return success_response(data={
+        "message": "密码已重置",
+    })
 
 
 @router.delete("/{user_id}", summary="删除用户")
@@ -453,19 +471,19 @@ async def delete_user(
     """
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
     # 不能删除自己
     if str(user_id) == current_user.user_id:
-        raise HTTPException(status_code=400, detail="不能删除自己")
+        return error_response(error_code='400', message="不能删除自己")
 
     # 不能删除超级管理员
     if "super_admin" in user.roles:
-        raise HTTPException(status_code=403, detail="不能删除超级管理员")
+        return error_response(error_code='403', message="不能删除超级管理员")
 
     UserRepository.delete(user_id)
 
-    return {"success": True, "message": "用户已删除"}
+    return success_response(message="用户已删除")
 
 
 @router.post("/{user_id}/unlock", summary="解锁用户")
@@ -478,10 +496,10 @@ async def unlock_user(
     """
     user = UserRepository.get_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        return error_response(error_code='404', message="用户不存在")
 
     if user.status != 'locked':
-        raise HTTPException(status_code=400, detail="用户未被锁定")
+        return error_response(error_code='400', message="用户未被锁定")
 
     UserRepository.update(user_id, status='active')
 
@@ -490,7 +508,7 @@ async def unlock_user(
     with pg_cursor(commit=True) as cursor:
         cursor.execute("UPDATE users SET login_fail_count = 0 WHERE id = %s", (user_id,))
 
-    return {"success": True, "message": "用户已解锁"}
+    return success_response(message="用户已解锁")
 
 
 # ============================================================================
@@ -506,8 +524,7 @@ async def list_organizations(
     """
     orgs = OrganizationRepository.list_all(status='active')
 
-    return {
-        "success": True,
+    return success_response(data={
         "organizations": [
             {
                 "id": org.id,
@@ -518,7 +535,7 @@ async def list_organizations(
             }
             for org in orgs
         ],
-    }
+    })
 
 
 # ============================================================================
@@ -542,4 +559,4 @@ async def list_roles(
             "description": info["description"],
         })
 
-    return {"success": True, "roles": roles}
+    return success_response(data={"roles": roles})

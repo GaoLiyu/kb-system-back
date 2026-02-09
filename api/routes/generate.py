@@ -9,7 +9,9 @@ from pydantic import BaseModel
 
 from ..auth import get_current_user
 from ..iam_client import UserContext
+from ..dependencies import get_system
 from ..config import settings
+from ..schemas import success_response, error_response
 
 
 router = APIRouter(prefix="/generate", tags=["生成辅助"])
@@ -50,26 +52,6 @@ class SuggestCasesRequest(BaseModel):
 class ValidateInputRequest(BaseModel):
     """验证输入请求"""
     subject: SubjectInput
-
-
-# ============================================================================
-# 获取系统实例
-# ============================================================================
-
-_system = None
-
-def get_system():
-    global _system
-    if _system is None:
-        import sys
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        from main import RealEstateKBSystem
-        _system = RealEstateKBSystem(
-            kb_path=settings.kb_path,
-            enable_llm=settings.enable_llm,
-            enable_vector=settings.enable_vector,
-        )
-    return _system
 
 
 # ============================================================================
@@ -118,7 +100,12 @@ def suggest_cases(req: SuggestCasesRequest, user: UserContext = Depends(get_curr
             "full_data": case_data,
         })
 
-    return {"success": True, "cases": cases, "total": len(cases)}
+    return success_response(
+        data={
+            "total": len(cases),
+            "cases": cases,
+        }
+    )
 
 
 @router.get("/reference/{report_type}", summary="获取参考数据")
@@ -130,12 +117,13 @@ def get_reference(report_type: str, user: UserContext = Depends(get_current_user
     """
     system = get_system()
 
-    return {
-        "success": True,
-        "price_range": system.query.get_price_range(report_type),
-        "area_range": system.query.get_area_range(report_type),
-        "correction_stats": system.query.get_correction_stats(report_type),
-    }
+    return success_response(
+        data={
+            "price_range": system.query.get_price_range(report_type),
+            "area_range": system.query.get_area_range(report_type),
+            "correction_stats": system.query.get_correction_stats(report_type),
+        }
+    )
 
 
 @router.post("/validate-input", summary="验证输入")
@@ -167,11 +155,12 @@ def validate_input(req: ValidateInputRequest, user: UserContext = Depends(get_cu
 
     errors = validate_subject_input(subject)
 
-    return {
-        "success": True,
-        "valid": len(errors) == 0,
-        "errors": errors,
-    }
+    return success_response(
+        data={
+            "valid": len(errors) == 0,
+            "errors": errors,
+        }
+    )
 
 
 @router.get("/input-schema", summary="获取输入表单定义")
@@ -185,22 +174,20 @@ def get_input_schema(user: UserContext = Depends(get_current_user)):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from generator import get_field_descriptions
 
-    return {
-        "success": True,
-        "fields": get_field_descriptions(),
-    }
+    return success_response(data={"fields": get_field_descriptions()})
 
 
-@router.get("/report-types", summary="获取报告类型")
+@router.get("/report-kb_types", summary="获取报告类型")
 def get_report_types(user: UserContext = Depends(get_current_user)):
     """
     获取支持的报告类型
     """
-    return {
-        "success": True,
-        "types": [
-            {"value": "shezhi", "label": "涉执报告", "description": "司法处置房产评估"},
-            {"value": "zujin", "label": "租金报告", "description": "租金评估"},
-            {"value": "biaozhunfang", "label": "标准房报告", "description": "标准房价格评估"},
-        ],
-    }
+    return success_response(
+        data={
+            "kb_types": [
+                {"value": "shezhi", "label": "涉执报告", "description": "司法处置房产评估"},
+                {"value": "zujin", "label": "租金报告", "description": "租金评估"},
+                {"value": "biaozhunfang", "label": "标准房报告", "description": "标准房价格评估"},
+            ]
+        }
+    )

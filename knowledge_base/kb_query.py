@@ -15,7 +15,7 @@ from typing import List, Dict, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import KB_CONFIG
+from config import Settings
 
 # 检测是否使用数据库模式
 USE_DATABASE = os.getenv('KB_USE_DATABASE', 'false').lower() == 'true'
@@ -30,7 +30,7 @@ class KnowledgeBaseQuery:
             kb_manager: KnowledgeBaseManager实例
         """
         self.kb = kb_manager
-        self.config = KB_CONFIG
+        self.config = Settings
         # 检测是否为数据库版本（通过检查是否有index属性）
         self._use_db = not hasattr(kb_manager, 'index') or USE_DATABASE
 

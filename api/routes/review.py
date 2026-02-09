@@ -13,12 +13,15 @@ from ..dependencies import (
     RequireRoles,
     OrgScoped,
     RequirePermission,
+    get_system
 )
 from ..config import settings
-from .kb import get_system
 from ..iam_client import UserContext
 from ..task_manager import ReviewTaskManager, submit_review_task
 from ..auth import get_current_user, get_data_scope, require_roles, DataScope
+from utils import temp_manager, convert_doc_to_docx
+from ..schemas import success_response, error_response, paginated_response
+
 
 router = APIRouter(prefix="/review", tags=["审查"])
 
@@ -48,15 +51,14 @@ async def submit_review(
         raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
 
     # 保存文件
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_filename = f"review_{timestamp}_{file.filename}"
-    save_path = os.path.join(settings.upload_dir, save_filename)
+    save_path = temp_manager.create_temp_file(suffix=ext, prefix="review_")
 
     try:
         with open(save_path, "wb") as f:
             content = await file.read()
             f.write(content)
     except Exception as e:
+        temp_manager.cleanup(save_path) # 删除临时文件
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
     # 创建任务
@@ -72,11 +74,10 @@ async def submit_review(
     system = get_system()
     submit_review_task(task_id, system, settings)
 
-    return {
-        "success": True,
-        "task_id": task_id,
-        "message": "任务已提交，请稍后查询结果",
-    }
+    return success_response(
+        data={"task_id": task_id},
+        message="审查任务已提交",
+    )
 
 
 @router.post("/submit-batch", summary="批量提交审查任务")
@@ -120,11 +121,14 @@ async def submit_batch_review(
         except Exception as e:
             task_ids.append({"filename": file.filename, "task_id": None, "error": str(e)})
 
-    return {
-        "success": True,
-        "count": len([t for t in task_ids if t.get("task_id")]),
-        "tasks": task_ids,
-    }
+    return success_response(
+        data={
+            "total": len(files),
+            "submitted": len(task_ids),
+            "task_ids": task_ids,
+        },
+        message=f"已提交 {len(task_ids)} 个审查任务",
+    )
 
 
 @router.get("/task/{task_id}", summary="查询任务状态")
@@ -137,12 +141,9 @@ async def get_task_status(
     """
     task = ReviewTaskManager.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+        return error_response(message="任务不存在", error_code="NOT_FOUND")
 
-    return {
-        "success": True,
-        **task,
-    }
+    return success_response(data=task)
 
 
 @router.get("/tasks", summary="任务列表")
@@ -158,11 +159,12 @@ async def list_tasks(
     tasks = ReviewTaskManager.list_tasks(status=status, limit=limit, offset=offset, user_id=scope.user_id, org_id=scope.org_id, scope=scope.scope_type)
     stats = ReviewTaskManager.get_stats(user_id=scope.user_id, org_id=scope.org_id, scope=scope.scope_type)
 
-    return {
-        "success": True,
-        "tasks": tasks,
-        "stats": stats,
-    }
+    return success_response(
+        data={
+            "tasks": tasks,
+            "total": len(tasks),
+        }
+    )
 
 
 @router.delete("/task/{task_id}", summary="删除任务")
@@ -189,7 +191,7 @@ async def delete_task(
 
     success = ReviewTaskManager.delete_task(task_id)
 
-    return {"success": success, "message": "删除成功"}
+    return success_response(message="任务已删除")
 
 
 @router.post("/task/{task_id}/export", summary="导出任务结果")
@@ -256,33 +258,33 @@ async def validate_report(
     if ext not in settings.allowed_extensions:
         raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
 
-    upload_path = os.path.join(settings.upload_dir, f"validate_{file.filename}")
-    try:
+    with temp_manager.temp_file(suffix=ext, prefix="validate_") as upload_path:
         with open(upload_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
+        # 处理文件
+        if upload_path.lower().endswith('.doc'):
+            upload_path = convert_doc_to_docx(upload_path)
+            temp_manager.register(upload_path)  # 注册转换后的文件
+
         system = get_system()
         result = system.validate(upload_path, verbose=False)
 
-        return {
-            "success": True,
-            "risk_level": result.risk_level,
-            "summary": result.summary,
-            "issues": [
-                {"level": i.level, "category": i.category, "description": i.description}
-                for i in result.issues
-            ],
-            "formula_checks": [
-                {"case_id": f.case_id, "expected": f.expected, "actual": f.actual, "is_valid": f.is_valid}
-                for f in result.formula_checks
-            ],
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if os.path.exists(upload_path):
-            os.remove(upload_path)
+        return success_response(
+            data={
+                "risk_level": result.risk_level,
+                "summary": result.summary,
+                "issues": [
+                    {"level": i.level, "category": i.category, "description": i.description}
+                    for i in result.issues
+                ],
+                "formula_checks": [
+                    {"case_id": f.case_id, "expected": f.expected, "actual": f.actual, "is_valid": f.is_valid}
+                    for f in result.formula_checks
+                ],
+            }
+        )
 
 
 @router.post("/extract", summary="仅提取（同步）")
@@ -310,22 +312,23 @@ async def extract_report(
         report_type = detect_report_type(upload_path)
         result = do_extract(upload_path)
 
-        return {
-            "success": True,
-            "report_type": report_type,
-            "subject": {
-                "address": result.subject.address.value if result.subject.address else None,
-                "building_area": result.subject.building_area.value if result.subject.building_area else None,
-            },
-            "cases": [
-                {
-                    "case_id": c.case_id,
-                    "address": c.address.value if c.address else None,
-                    "area": c.building_area.value if c.building_area else None,
-                }
-                for c in result.cases
-            ],
-        }
+        return success_response(
+            data={
+                "report_type": report_type,
+                "subject": {
+                    "address": result.subject.address.value if result.subject.address else None,
+                    "building_area": result.subject.building_area.value if result.subject.building_area else None,
+                },
+                "cases": [
+                    {
+                        "case_id": c.case_id,
+                        "address": c.address.value if c.address else None,
+                        "area": c.building_area.value if c.building_area else None,
+                    }
+                    for c in result.cases
+                ],
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

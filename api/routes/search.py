@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ..auth import get_current_user
 from ..iam_client import UserContext
 from ..config import settings
+from ..schemas import success_response, error_response, paginated_response
 
 
 router = APIRouter(prefix="/search", tags=["搜索"])
@@ -175,7 +176,12 @@ def vector_search(req: VectorSearchRequest, user: UserContext = Depends(get_curr
             "score": score,
         })
 
-    return {"success": True, "cases": cases, "total": len(cases)}
+    return success_response(
+        data={
+            "total": len(cases),
+            "cases": cases,
+        }
+    )
 
 
 @router.post("/hybrid", summary="混合搜索")
@@ -213,7 +219,12 @@ def hybrid_search(req: HybridSearchRequest, user: UserContext = Depends(get_curr
             "full_data": case_data,
         })
 
-    return {"success": True, "cases": cases, "total": len(cases)}
+    return success_response(
+        data={
+            "total": len(cases),
+            "cases": cases,
+        }
+    )
 
 
 @router.post("/similar", summary="相似案例")
@@ -246,7 +257,12 @@ def similar_search(req: SimilarSearchRequest, user: UserContext = Depends(get_cu
             "score": score,
         })
 
-    return {"success": True, "cases": cases}
+    return success_response(
+        data={
+            "total": len(results),
+            "cases": cases
+        }
+    )
 
 
 @router.get("/cases/{case_id}", summary="案例详情")
@@ -259,9 +275,9 @@ def get_case_detail(case_id: str, user: UserContext = Depends(get_current_user))
     case_data = system.query.get_case_by_id(case_id)
 
     if not case_data:
-        return {"success": False, "error": "案例不存在"}
+        return error_response(message="案例不存在", error_code="NOT_FOUND")
 
-    return {"success": True, "case": case_data}
+    return success_response(data=case_data)
 
 
 @router.get("/stats/price", summary="价格统计")
@@ -280,7 +296,7 @@ def get_price_stats(
         district=district,
     )
 
-    return {"success": True, **stats}
+    return success_response(data=stats)
 
 
 @router.get("/stats/area", summary="面积统计")
@@ -295,7 +311,7 @@ def get_area_stats(
 
     stats = system.query.get_area_stats(report_type=report_type)
 
-    return {"success": True, **stats}
+    return success_response(data=stats)
 
 
 @router.get("/filters", summary="获取筛选选项")

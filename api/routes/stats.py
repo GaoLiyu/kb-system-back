@@ -12,6 +12,7 @@ from .kb import get_system
 from ..auth import get_current_user, require_roles
 from ..iam_client import UserContext
 from ..config import settings
+from ..schemas import success_response, error_response
 
 router = APIRouter(prefix="/stats", tags=["统计"])
 
@@ -24,13 +25,7 @@ async def get_overview_stats(user: UserContext = Depends(get_current_user)):
     system = get_system()
     kb_stats = system.kb.stats()
 
-    return {
-        "success": True,
-        "total_reports": kb_stats.get("total_reports", 0),
-        "total_cases": kb_stats.get("total_cases", 0),
-        "by_type": kb_stats.get("by_type", {}),
-        "vector_index": kb_stats.get("vector_index", {}),
-    }
+    return success_response(data=kb_stats)
 
 
 @router.get("/reports", summary="报告统计")
@@ -68,13 +63,11 @@ async def get_report_stats(user: UserContext = Depends(get_current_user)):
     # 按月排序
     by_month_sorted = dict(sorted(by_month.items()))
 
-    return {
-        "success": True,
+    return success_response(data={
         "total": len(reports),
         "by_type": by_type,
         "by_month": by_month_sorted,
-    }
-
+    })
 
 @router.get("/cases", summary="案例统计")
 async def get_case_stats(user: UserContext = Depends(get_current_user)):
@@ -127,13 +120,14 @@ async def get_case_stats(user: UserContext = Depends(get_current_user)):
         """)
         price_distribution = {row[0]: row[1] for row in cursor.fetchall()}
 
-    return {
-        "success": True,
-        "total": total,
-        "by_type": by_type,
-        "by_district": by_district,
-        "price_distribution": price_distribution,
-    }
+    return success_response(
+        data={
+            "total": total,
+            "by_type": by_type,
+            "by_district": by_district,
+            "price_distribution": price_distribution,
+        }
+    )
 
 
 @router.get("/review", summary="审查统计")
@@ -173,13 +167,14 @@ async def get_review_stats(user: UserContext = Depends(get_current_user)):
         """)
         recent_trend = {str(row[0]): row[1] for row in cursor.fetchall()}
 
-    return {
-        "success": True,
-        "total": total,
-        "by_status": by_status,
-        "by_risk": by_risk,
-        "recent_trend": recent_trend,
-    }
+    return success_response(
+        data={
+            "total": total,
+            "by_status": by_status,
+            "by_risk": by_risk,
+            "recent_trend": recent_trend,
+        }
+    )
 
 
 @router.get("/dashboard", summary="仪表盘数据")
@@ -220,14 +215,15 @@ async def get_dashboard_data(user: UserContext = Depends(get_current_user)):
             "new_tasks": row[1],
         }
 
-    return {
-        "success": True,
-        "kb": {
-            "total_reports": kb_stats.get("total_reports", 0),
-            "total_cases": kb_stats.get("total_cases", 0),
-            "by_type": kb_stats.get("by_type", {}),
-        },
-        "review": review_stats,
-        "today": today_stats,
-        "vector_index": kb_stats.get("vector_index", {}),
-    }
+    return success_response(
+        data={
+            "kb": {
+                "total_reports": kb_stats.get("total_reports", 0),
+                "total_cases": kb_stats.get("total_cases", 0),
+                "by_type": kb_stats.get("by_type", {}),
+            },
+            "review": review_stats,
+            "today": today_stats,
+            "vector_index": kb_stats.get("vector_index", {}),
+        }
+    )

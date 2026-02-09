@@ -143,8 +143,8 @@ class BiaozhunfangExtractor(BaseExtractor):
         'p4': ['P4', 'P4区位', '区位状况修正'],
         'composite': ['P1×P2×P3×P4', '综合修正', '修正系数综合'],
         'vs_result': ['Vs×', 'Vs结果', 'Vs×结果'],
-        'decoration': ['装修', '装修价格', '装修重置价', '装修档次'],
-        'attachment': ['附属物', '附属物价格', '附属物单价'],
+        'decoration': ['装修', '装修价格', '装修重置价', '装修档次', '装饰装修', 'Vb', '装修单价'],
+        'attachment': ['附属物', '附属物价格', '附属物单价', 'Va', '附属设施', '附属物单价修正'],
         'final': ['比准价格', '最终价格', '评估单价'],
     }
 
@@ -434,7 +434,27 @@ class BiaozhunfangExtractor(BaseExtractor):
         row_indices = find_rows_by_labels(table, self.CORRECTION_ROW_LABELS, start_row=0, label_col=0)
 
         # 列索引（A=1, B=2, C=3, D=4）
-        case_cols = {'A': 1, 'B': 2, 'C': 3, 'D': 4}
+        case_cols = {}
+        if len(table.rows) > 0:
+            header_cells = row_to_text_list(table.rows[0])
+            for col_idx, cell_text in enumerate(header_cells):
+                text = normalize_label(cell_text)
+                if '可比实例A' in text or text == 'A' or '实例A' in text:
+                    case_cols['A'] = col_idx
+                elif '可比实例B' in text or text == 'B' or '实例B' in text:
+                    case_cols['B'] = col_idx
+                elif '可比实例C' in text or text == 'C' or '实例C' in text:
+                    case_cols['C'] = col_idx
+                elif '可比实例D' in text or text == 'D' or '实例D' in text:
+                    case_cols['D'] = col_idx
+
+        # 如果没检测到，尝试用数据行第一行推断
+        if len(case_cols) < 4:
+            # 回退：假设标签列后面依次是 A B C D
+            # 先找到标签列宽度（第一个有数据的非标签列）
+            case_cols = {'A': 1, 'B': 2, 'C': 3, 'D': 4}
+
+        print(f"   修正计算表列索引: {case_cols}")
 
         for case in result.cases:
             col_idx = case_cols.get(case.case_id)
@@ -478,6 +498,20 @@ class BiaozhunfangExtractor(BaseExtractor):
                     setattr(case, attr_name,
                             self.create_located_value(value, table_idx, row_idx, col_idx, raw_text))
 
+        for case in result.cases:
+            p1 = getattr(case, 'p1_transaction', None)
+            p2 = getattr(case, 'p2_date', None)
+            p3 = getattr(case, 'p3_physical', None)
+            p4 = getattr(case, 'p4_location', None)
+            va = getattr(case, 'attachment_price', None)
+            vb = getattr(case, 'decoration_price', None)
+            fp = getattr(case, 'final_price', None)
+            va_val = va.value if hasattr(va, 'value') and va else va
+            vb_val = vb.value if hasattr(vb, 'value') and vb else vb
+            fp_val = fp.value if hasattr(fp, 'value') and fp else fp
+            print(f"   Case {case.case_id}: P1={p1}, P2={p2}, P3={p3}, P4={p4}, "
+                  f"Va={va_val}, Vb={vb_val}, Final={fp_val}")
+
     def _extract_extended_info(self, result: BiaozhunfangExtractionResult):
         """从全文提取扩展信息"""
         patterns = {
@@ -490,6 +524,33 @@ class BiaozhunfangExtractor(BaseExtractor):
                 r'价值时点[：:为]*(\d{4}-\d{1,2}-\d{1,2})',
             ],
         }
+
+        if not (result.subject.total_price and
+                hasattr(result.subject.total_price, 'value') and
+                result.subject.total_price.value):
+            total_price_patterns = [
+                r'评估总价[为：:]\s*([\d,.]+)\s*万?\s*元',
+                r'估价结果[为：:]\s*([\d,.]+)\s*万?\s*元',
+                r'市场价值[为：:]\s*(?:人民币)?\s*([\d,.]+)\s*万?\s*元',
+                r'总价[为：:]\s*([\d,.]+)\s*万?\s*元',
+            ]
+            for pattern in total_price_patterns:
+                match = re.search(pattern, self.full_text)
+                if match:
+                    price_str = match.group(1).replace(',', '')
+                    try:
+                        value = float(price_str)
+                        # 判断是否万元
+                        matched_text = match.group(0)
+                        if '万' in matched_text:
+                            value = value * 10000
+                        result.subject.total_price = self.create_located_value(
+                            value, -1, -1, -1, match.group(0)
+                        )
+                        print(f"   从全文提取总价: {match.group(0)} → {value}")
+                    except ValueError:
+                        pass
+                    break
 
         extracted = self.extract_from_text(patterns)
 
