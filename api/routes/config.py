@@ -71,7 +71,7 @@ class UserInfoResponse(BaseModel):
 # 接口
 # ============================================================================
 
-@router.get("", summary="获取系统配置", response_model=SystemConfigResponse)
+@router.get("", summary="获取系统配置")
 async def get_system_config():
     """
     获取系统配置（无需登录）
@@ -92,33 +92,31 @@ async def get_system_config():
         iam_login_url = f"{iam_base}/login?app_code={app_code}"
         iam_logout_url = f"{iam_base}/logout?app_code={app_code}"
 
-    return success_response(
-        data={
-            "system": {
-                "name": settings.app_name,
-                "version": settings.version,
-                "description": "...",
-            },
-            "auth": {
-                "iam_enabled": settings.iam_enabled,
-                "iam_login_url": iam_login_url,
-                "iam_logout_url": iam_logout_url,
-                "iam_app_code": settings.iam_app_code if settings.iam_enabled else None,
-            },
-            "features": {
-                "enable_llm": settings.enable_llm,
-                "enable_vector": settings.enable_vector,
-                "enable_audit_log": True,
-                "enable_batch_upload": True,
-                "enable_export": True,
-                "max_upload_size_mb": settings.max_upload_size // (1024 * 1024),
-                "allowed_extensions": list(settings.allowed_extensions),
-            }
-        }
+    return SystemConfigResponse(
+        system=SystemInfo(
+            name=settings.app_name,
+            version=settings.version,
+            description="基于比较法的房地产估价报告知识库系统",
+        ),
+        auth=AuthConfig(
+            iam_enabled=settings.iam_enabled,
+            iam_login_url=iam_login_url,
+            iam_logout_url=iam_logout_url,
+            iam_app_code=settings.iam_app_code if settings.iam_enabled else None,
+        ),
+        features=FeatureConfig(
+            enable_llm=settings.enable_llm,
+            enable_vector=settings.enable_vector,
+            enable_audit_log=True,
+            enable_batch_upload=True,
+            enable_export=True,
+            max_upload_size_mb=settings.max_upload_size // (1024 * 1024),
+            allowed_extensions=list(settings.allowed_extensions),
+        )
     )
 
 
-@router.get("/user", summary="获取当前用户信息", response_model=UserInfoResponse)
+@router.get("/user", summary="获取当前用户信息")
 async def get_current_user_info(
     request: Request,
     user: Optional[UserContext] = Depends(get_optional_user),

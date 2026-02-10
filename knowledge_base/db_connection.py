@@ -57,8 +57,8 @@ class ConnectionPool:
 
     def _create_pool(self):
         """创建连接池"""
-        if self._pool is None:
-            return
+        # if self._pool is None:
+        #     return
 
         try:
             from psycopg2 import pool

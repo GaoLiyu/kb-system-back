@@ -282,7 +282,7 @@ def run_review_task(task_id: str, system, settings):
     try:
         if review_mode == 'quick':
             # 快速审查
-            review_result = system.review(file_path, verbose=False)
+            review_result = system.review(file_path, verbose=False, original_filename=task['filename'])
 
             validation_count = len(review_result.validation.issues) if review_result.validation else 0
             llm_count = len(review_result.llm_issues) if review_result.llm_issues else 0
@@ -364,8 +364,9 @@ def run_review_task(task_id: str, system, settings):
                 item.index = idx
 
             # 报告提取
-            report_type = detect_report_type(file_path)
-            extraction_result = extract_report(file_path, report_type)
+            original_filename = task['filename']
+            report_type = detect_report_type(filename=original_filename)
+            extraction_result = extract_report(file_path, report_type, original_filename=original_filename)
 
             # 基础校验
             validation_result = validate_report(extraction_result)

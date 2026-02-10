@@ -98,9 +98,7 @@ async def submit_batch_review(
             continue
 
         # 保存文件
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        save_filename = f"review_{timestamp}_{file.filename}"
-        save_path = os.path.join(settings.upload_dir, save_filename)
+        save_path = temp_manager.create_temp_file(suffix=ext, prefix="review_")
 
         try:
             with open(save_path, "wb") as f:
@@ -112,6 +110,8 @@ async def submit_batch_review(
                 filename=file.filename,
                 file_path=save_path,
                 review_mode=mode,
+                user_id=user.user_id,
+                org_id=user.org_id,
             )
 
             # 提交到线程池
@@ -160,10 +160,7 @@ async def list_tasks(
     stats = ReviewTaskManager.get_stats(user_id=scope.user_id, org_id=scope.org_id, scope=scope.scope_type)
 
     return success_response(
-        data={
-            "tasks": tasks,
-            "total": len(tasks),
-        }
+        data={"tasks": tasks, "stats": stats},
     )
 
 
@@ -269,7 +266,7 @@ async def validate_report(
             temp_manager.register(upload_path)  # 注册转换后的文件
 
         system = get_system()
-        result = system.validate(upload_path, verbose=False)
+        result = system.validate(upload_path, verbose=False, original_filename=file.filename)
 
         return success_response(
             data={
@@ -309,8 +306,8 @@ async def extract_report(
         if upload_path.lower().endswith('.doc'):
             upload_path = convert_doc_to_docx(upload_path)
 
-        report_type = detect_report_type(upload_path)
-        result = do_extract(upload_path)
+        report_type = detect_report_type(file.filename)
+        result = do_extract(upload_path, report_type, file.filename)
 
         return success_response(
             data={

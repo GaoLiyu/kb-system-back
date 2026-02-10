@@ -56,18 +56,19 @@ from .content_extractor import (
 )
 
 
-def extract_report(doc_path: str, report_type: str = None):
+def extract_report(doc_path: str, report_type: str = None, original_filename: str = None):
     """
     根据文件名或指定类型自动选择提取器并提取数据
 
     Args:
         doc_path: 文档路径
         report_type: 报告类型（可选），支持 'biaozhunfang', 'zujin', 'shezhi'
+        original_filename:
 
     Returns:
         提取结果（BiaozhunfangExtractionResult / ZujinExtractionResult / ShezhiExtractionResult）
     """
-    filename = os.path.basename(doc_path).lower()
+    filename = (original_filename or os.path.basename(doc_path)).lower()
 
     # 税务标准房
     if report_type == 'biaozhunfang' or '标准房' in filename or 'biaozhunfang' in filename or '电梯多层' in filename or '税务' in filename:

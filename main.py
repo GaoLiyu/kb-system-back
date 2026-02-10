@@ -54,13 +54,14 @@ class RealEstateKBSystem:
     # 知识库构建
     # ========================================================================
 
-    def add_report(self, doc_path: str, verbose: bool = True):
+    def add_report(self, doc_path: str, verbose: bool = True, original_filename: str = None):
         """
         添加报告到知识库
 
         Args:
             doc_path: 文档路径
             verbose: 是否打印详情
+            original_filename
         """
         if verbose:
             print(f"\n📥 添加: {os.path.basename(doc_path)}")
@@ -70,10 +71,11 @@ class RealEstateKBSystem:
             doc_path = convert_doc_to_docx(doc_path)
 
         # 检测类型
-        report_type = detect_report_type(doc_path)
+        detect_name = original_filename or doc_path
+        report_type = detect_report_type(detect_name)
 
         # 提取
-        result = extract_report(doc_path, report_type)
+        result = extract_report(doc_path, report_type, original_filename)
 
         # 存入知识库
         doc_id = self.kb.add_report(result, report_type)
@@ -133,23 +135,25 @@ class RealEstateKBSystem:
     # 审查功能
     # ========================================================================
 
-    def review(self, doc_path: str, verbose: bool = True):
+    def review(self, doc_path: str, verbose: bool = True, original_filename: str = None):
         """
         审查报告（基于知识库）
 
         Args:
             doc_path: 文档路径
             verbose: 是否打印详情
+            original_filename
         """
-        return self.reviewer.review(doc_path, verbose)
+        return self.reviewer.review(doc_path, verbose, original_filename)
 
-    def validate(self, doc_path: str, verbose: bool = True):
+    def validate(self, doc_path: str, verbose: bool = True, original_filename: str = None):
         """
         仅做基础校验（不对比知识库）
 
         Args:
             doc_path: 文档路径
             verbose: 是否打印详情
+            original_filename
         """
         if verbose:
             print(f"\n🔍 校验: {os.path.basename(doc_path)}")
@@ -159,7 +163,7 @@ class RealEstateKBSystem:
             doc_path = convert_doc_to_docx(doc_path)
 
         # 提取
-        result = extract_report(doc_path)
+        result = extract_report(doc_path, original_filename=original_filename)
 
         # 校验
         validation = validate_report(result, {

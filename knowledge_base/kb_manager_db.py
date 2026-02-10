@@ -163,7 +163,7 @@ def result_to_dict(result) -> Dict:
         }
 
     # 检查是否是批量评估报告（XianzhibExtractionResult）
-    if hasattr(result, 'subjects') and isinstance(result.subjects, list):
+    if hasattr(result, 'total_count') and hasattr(result, 'case_groups'):
         # 批量评估报告
         data = {
             'source_file': result.source_file,

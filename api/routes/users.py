@@ -117,7 +117,7 @@ def get_client_ip(request: Request) -> str:
 # 登录登出
 # ============================================================================
 
-@router.post("/login", summary="用户登录", response_model=LoginResponse)
+@router.post("/login", summary="用户登录")
 async def login(request: Request, req: LoginRequest):
     """
     用户登录

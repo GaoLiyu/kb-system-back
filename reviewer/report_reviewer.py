@@ -67,13 +67,14 @@ class ReportReviewer:
         self.enable_llm = enable_llm
         self.llm_reviewer = LLMReviewer() if enable_llm else None
     
-    def review(self, doc_path: str, verbose: bool = True) -> ReviewResult:
+    def review(self, doc_path: str, verbose: bool = True, original_filename: str = None) -> ReviewResult:
         """
         审查报告
         
         Args:
             doc_path: 文档路径
             verbose: 是否打印详情
+            original_filename
         
         Returns:
             ReviewResult
@@ -88,10 +89,11 @@ class ReportReviewer:
             doc_path = convert_doc_to_docx(doc_path)
         
         # 检测类型
-        report_type = detect_report_type(doc_path)
+        detect_name = original_filename or doc_path
+        report_type = detect_report_type(detect_name)
         
         # 提取数据
-        result = extract_report(doc_path, report_type)
+        result = extract_report(doc_path, report_type, original_filename=original_filename)
         
         # 1. 基础校验
         validation = validate_report(result)
