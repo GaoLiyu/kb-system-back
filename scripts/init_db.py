@@ -289,6 +289,85 @@ def init_postgresql():
         """)
         print("  ✓ audit_logs 表")
 
+        # ========== 新增: async_tasks 表 ==========
+        print("创建 async_tasks 表...")
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS async_tasks
+                       (
+                           id
+                           SERIAL
+                           PRIMARY
+                           KEY,
+                           task_id
+                           VARCHAR
+                       (
+                           64
+                       ) UNIQUE NOT NULL,
+                           task_type VARCHAR
+                       (
+                           50
+                       ) NOT NULL,
+                           status VARCHAR
+                       (
+                           20
+                       ) DEFAULT 'pending',
+                           priority INT DEFAULT 5,
+                           name VARCHAR
+                       (
+                           255
+                       ),
+                           description TEXT,
+                           input_data JSONB,
+                           output_data JSONB,
+                           progress INT DEFAULT 0,
+                           progress_message VARCHAR
+                       (
+                           500
+                       ),
+                           error_code VARCHAR
+                       (
+                           50
+                       ),
+                           error_message TEXT,
+                           related_id VARCHAR
+                       (
+                           64
+                       ),
+                           related_type VARCHAR
+                       (
+                           50
+                       ),
+                           file_path VARCHAR
+                       (
+                           500
+                       ),
+                           file_name VARCHAR
+                       (
+                           255
+                       ),
+                           file_size BIGINT,
+                           created_by VARCHAR
+                       (
+                           64
+                       ),
+                           org_id VARCHAR
+                       (
+                           64
+                       ),
+                           create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                           start_time TIMESTAMP,
+                           end_time TIMESTAMP,
+                           metadata JSONB
+                           )
+                       """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_async_tasks_type ON async_tasks(task_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_async_tasks_status ON async_tasks(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_async_tasks_created_by ON async_tasks(created_by)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_async_tasks_org_id ON async_tasks(org_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_async_tasks_create_time ON async_tasks(create_time DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_async_tasks_related ON async_tasks(related_id, related_type)")
+        print("  ✓ async_tasks 表")
+
         # ========== 9. 触发器 ==========
         print("创建触发器...")
         cursor.execute("""
@@ -358,6 +437,7 @@ def init_postgresql():
     finally:
         cursor.close()
         conn.close()
+
 
 
 def init_milvus():

@@ -29,7 +29,9 @@ from .routes import (
     stats_router,
     config_router,
     audit_router,
-    users_router
+    users_router,
+    tasks_router,
+    sse_router
 )
 from .audit import AuditMiddleware
 from .exceptions import register_exception_handlers
@@ -108,6 +110,8 @@ app.include_router(stats_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
 app.include_router(audit_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(tasks_router, prefix="/api")
+app.include_router(sse_router, prefix="/api")
 
 
 # ============================================================================
@@ -165,6 +169,10 @@ async def startup_event():
 async def shutdown_event():
     """应用关闭事件"""
     print("🛑 应用关闭中...")
+
+    # 关闭线程池
+    from .services import shutdown_executor
+    shutdown_executor()
 
     # 清理数据库连接池
     cleanup_db()

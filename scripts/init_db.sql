@@ -359,3 +359,72 @@ BEGIN
     RAISE NOTICE '默认管理员: admin / admin123';
     RAISE NOTICE '⚠️  请立即修改默认密码！';
 END $$;
+
+-- ============================================================================
+-- 迁移脚本：创建 async_tasks 表
+-- ============================================================================
+-- 执行方式:
+-- psql -h 127.0.0.1 -p 54321 -U kb_admin -d real_estate_kb -f add_async_tasks.sql
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS async_tasks (
+    id SERIAL PRIMARY KEY,
+    task_id VARCHAR(64) UNIQUE NOT NULL,
+    task_type VARCHAR(50) NOT NULL,              -- review/upload/batch_upload/export/vectorize/llm_process
+    status VARCHAR(20) DEFAULT 'pending',        -- pending/running/completed/failed/cancelled
+    priority INT DEFAULT 5,                      -- 1-10, 越小越高
+
+    -- 基本信息
+    name VARCHAR(255),                           -- 任务名称（通常是文件名）
+    description TEXT,                            -- 任务描述
+
+    -- 输入输出
+    input_data JSONB,                            -- 输入参数
+    output_data JSONB,                           -- 输出结果
+
+    -- 进度
+    progress INT DEFAULT 0,                      -- 进度 0-100
+    progress_message VARCHAR(500),               -- 进度描述（SSE推送用）
+
+    -- 错误信息
+    error_code VARCHAR(50),
+    error_message TEXT,
+
+    -- 关联
+    related_id VARCHAR(64),                      -- 关联业务ID（如 doc_id）
+    related_type VARCHAR(50),                    -- 关联类型
+
+    -- 文件信息
+    file_path VARCHAR(500),                      -- 临时文件路径
+    file_name VARCHAR(255),                      -- 原始文件名（用于类型检测！）
+    file_size BIGINT,
+
+    -- 权限
+    created_by VARCHAR(64),
+    org_id VARCHAR(64),
+
+    -- 时间
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+
+    -- 扩展
+    metadata JSONB
+);
+
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_async_tasks_type ON async_tasks(task_type);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_status ON async_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_created_by ON async_tasks(created_by);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_org_id ON async_tasks(org_id);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_create_time ON async_tasks(create_time DESC);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_related ON async_tasks(related_id, related_type);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_type_status ON async_tasks(task_type, status);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_output ON async_tasks USING GIN(output_data);
+
+-- 注释
+COMMENT ON TABLE async_tasks IS '通用异步任务表，替代原 review_tasks';
+COMMENT ON COLUMN async_tasks.file_name IS '原始文件名，用于报告类型自动检测';
+COMMENT ON COLUMN async_tasks.progress_message IS '进度描述，SSE实时推送给前端';
+COMMENT ON COLUMN async_tasks.input_data IS '任务输入参数，JSON格式';
+COMMENT ON COLUMN async_tasks.output_data IS '任务输出结果，JSON格式（审查结果等）';

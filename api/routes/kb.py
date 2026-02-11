@@ -25,6 +25,12 @@ from ..schemas import (
     CaseSummary,
     StatsOverview,
 )
+from ..services import (
+    TaskManager,
+    TaskType,
+    TaskStatus,
+    submit_task
+)
 
 router = APIRouter(prefix="/kb", tags=["知识库"])
 
@@ -205,7 +211,7 @@ async def get_filter_options(
     }
 
 
-@router.post("/upload", summary="上传报告")
+@router.post("/upload", summary="上传报告（兼容，实际走异步任务）", deprecated=True)
 async def upload_report(
     file: UploadFile = File(...),
     report_type: str = None,
@@ -243,70 +249,6 @@ async def upload_report(
             os.remove(upload_path)
 
 
-@router.post("/batch-upload", summary="批量上传报告")
-async def batch_upload_reports(
-    files: List[UploadFile] = File(...),
-    report_type: str = None,
-    user: UserContext = Depends(require_editor)
-):
-    """批量上传报告到知识库"""
-    results = []
-    success_count = 0
-    fail_count = 0
-
-    system = get_system()
-
-    for file in files:
-        ext = os.path.splitext(file.filename)[1].lower()
-
-        if ext not in settings.allowed_extensions:
-            results.append({
-                "filename": file.filename,
-                "success": False,
-                "error": f"不支持的文件格式: {ext}",
-            })
-            fail_count += 1
-            continue
-
-        upload_path = os.path.join(settings.upload_dir, f"batch_{file.filename}")
-        try:
-            with open(upload_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-
-            doc_id = system.add_report(upload_path, verbose=False)
-            detected_type = report_type or detect_report_type(upload_path)
-
-            results.append({
-                "filename": file.filename,
-                "success": True,
-                "doc_id": doc_id,
-                "report_type": detected_type,
-            })
-            success_count += 1
-
-        except Exception as e:
-            results.append({
-                "filename": file.filename,
-                "success": False,
-                "error": str(e),
-            })
-            fail_count += 1
-        finally:
-            if os.path.exists(upload_path):
-                os.remove(upload_path)
-
-    return success_response(
-        data={
-            "total": len(files),
-            "success_count": success_count,
-            "failed_count": fail_count,
-            "results": results,
-        },
-        message=f"批量上传完成，成功 {success_count} 个，失败 {fail_count} 个",
-    )
-
-
 @router.delete("/report/{doc_id}", summary="删除报告")
 async def delete_report(
     doc_id: str,
@@ -328,3 +270,28 @@ async def get_stats(user: UserContext = Depends(require_viewer)):
     system = get_system()
     stats = system.kb.stats()
     return success_response(data=stats)
+
+
+@router.post("/vectorize", summary="重建向量索引")
+async def create_vectorize_task(
+    report_type: Optional[str] = Form(None, description="指定类型，不填则全部"),
+    user: UserContext = Depends(get_current_user),
+):
+    """
+    重建向量索引（异步）
+    - 无文件上传，不需要 file_path
+    - input_data 里放 report_type 过滤条件
+    """
+    if 'admin' not in user.roles:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    task_id = TaskManager.create(
+        task_type=TaskType.VECTORIZE.value,
+        name="重建向量索引",
+        input_data={"report_type": report_type},
+        created_by=user.user_id,
+        org_id=user.org_id,
+    )
+    system = get_system()
+    submit_task(task_id, system, settings)
+    return success_response(data={"task_id": task_id}, message="向量化任务已创建")
